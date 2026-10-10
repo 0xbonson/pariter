@@ -1,0 +1,56 @@
+# Pariter — Security Architecture & Threat Model
+
+**Contract:** `BatchPayout.sol`  
+**Network:** Arc Mainnet (Chain ID `5042`)  
+**Security Status:** Self-Audited & Invariant-Tested; NO Professional Third-Party Audit Claimed  
+**Date:** 2026-10-11  
+
+---
+
+## 1. Trust Assumptions & Boundaries
+
+1. **Non-Custodial Architecture:**
+   - The `BatchPayout` contract holds zero custody of user funds.
+   - Payer funds remain in their personal wallet until the exact moment of atomic batch execution.
+   - Post-condition check `require(usdc.balanceOf(address(this)) == 0)` ensures no token is stranded in the contract.
+2. **Deterministic Token Interaction:**
+   - The contract interacts exclusively with the immutable canonical Arc USDC contract passed at deployment (`0x3600000000000000000000000000000000000000` on Arc Mainnet).
+   - SafeERC20 wrappers guard against non-standard or missing return values.
+3. **Payer-Scoped Replay Protection:**
+   - Every batch is assigned a `bytes32 batchId` scoped directly to `msg.sender` (`isBatchExecuted[msg.sender][batchId]`).
+   - Even if two payers use the same batchId or salt, their executions are strictly isolated.
+   - A failed or reverted transaction does not consume the batch ID.
+
+---
+
+## 2. Threat Vector Analysis & Mitigations
+
+| Threat Vector | Attack Scenario | Implemented Mitigation |
+| :--- | :--- | :--- |
+| **Reentrancy** | Malicious token callback or hook attempts to drain funds during loop | `ReentrancyGuard` modifier (`nonReentrant`), state updated before transfer, zero residual balance invariant. |
+| **Replay Attack** | Attacker re-submits a signed batch transaction payload to repeat disbursement | Payer-scoped `isBatchExecuted[msg.sender][batchId]` boolean check prevents re-execution. |
+| **Partial Execution Desync** | Payer thinks 5 out of 10 recipients were paid | EVM transaction atomicity: any failure reverts the entire execution, rolling back all state and token balances. |
+| **Gas Exhaustion (DoS)** | Excessive recipient list causes out-of-gas midway through batch | `MAX_BATCH_SIZE = 250` hard limit enforced at contract entry. |
+| **Zero Address Burns** | Accidental send to `address(0)` destroys funds | Strict check: `if (recipients[i] == address(0)) revert InvalidRecipient(i);` |
+| **Self-Transfer Trap** | Sending to `address(this)` traps tokens inside contract | Strict check: `if (recipients[i] == address(this)) revert RecipientCannotBeSelf(i);` |
+| **Zero-Amount Spams** | Payer wastes gas on zero-value events | Strict check: `if (amounts[i] == 0) revert ZeroAmount(i);` |
+| **Floating-Point Precision Loss** | Frontend rounds fractional USDC values causing onchain mismatch | Frontend and contract use integer `bigint` base units with checked 6-decimal string parsing. |
+| **Allowance Hijacking** | Contract requests unlimited allowance (`2^256 - 1`) leaving wallet vulnerable | Frontend defaults to exact-amount allowance (`totalTransferred`). |
+
+---
+
+## 3. Financial Invariants (Mathematically Verified)
+
+1. **Conservation of Balance:**  
+   $$\sum_{i=0}^{N-1} \text{recipient\_delta}_i = \text{payer\_debit} = \text{totalTransferred}$$
+2. **Zero Residual Custody:**  
+   $$\text{balanceOf}(\text{BatchPayout}) = 0 \quad \forall \text{ blocks}$$
+3. **Execution Uniqueness:**  
+   $$\text{executeBatch}(P, B) \implies \text{hasBatchExecuted}(P, B) == \text{true}$$
+
+---
+
+## 4. Operational Secrets Management
+- No private keys, seed phrases, or credentials are stored or handled by the frontend.
+- All signing operations occur through standard EVM wallet providers (MetaMask, Coinbase Wallet, WalletConnect).
+- Read-only verification operates directly through public JSON-RPC endpoints without requiring credentials.

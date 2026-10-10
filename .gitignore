@@ -1,0 +1,25 @@
+# Node / Web
+web/node_modules/
+web/dist/
+web/.env
+web/.env.local
+web/.env.*.local
+*.log
+
+# Foundry / Solidity
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment Secrets
+.env
+.env.*
+!.env.example
+private_key*
+*secret*

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Pariter Brand Glyph: Geometric Atomic Disbursement Spine -->
+  <rect width="48" height="48" rx="8" fill="#0F172A"/>
+  <!-- Distribution Fulcrum/Spine -->
+  <path d="M12 12V36" stroke="#94A3B8" stroke-width="3" stroke-linecap="round"/>
+  <!-- Top Payout Channel -->
+  <path d="M12 16H34" stroke="#38BDF8" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="34" cy="16" r="2.5" fill="#38BDF8"/>
+  <!-- Middle Payout Channel -->
+  <path d="M12 24H36" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="36" cy="24" r="2.5" fill="#FFFFFF"/>
+  <!-- Bottom Payout Channel -->
+  <path d="M12 32H32" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="2.5" fill="#60A5FA"/>
+</svg>
