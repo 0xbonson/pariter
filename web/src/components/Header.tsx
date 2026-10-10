@@ -102,7 +102,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
               </a>
               <button
                 onClick={() => disconnect()}
-                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200 transition-colors"
+                aria-label="Disconnect wallet"
+                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200 transition-colors focus-visible:ring-1 focus-visible:ring-red-500"
                 title="Disconnect wallet"
               >
                 <LogOut className="w-4 h-4" />
@@ -112,7 +113,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
             <button
               onClick={() => connect({ connector: connectors[0] })}
               disabled={isPending}
-              className="flex items-center space-x-2 px-3.5 py-1.5 rounded text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+              aria-label="Connect wallet"
+              className="flex items-center space-x-2 px-3.5 py-1.5 rounded text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-slate-900"
             >
               <Wallet className="w-3.5 h-3.5" />
               <span>{isPending ? 'Connecting...' : 'Connect Wallet'}</span>

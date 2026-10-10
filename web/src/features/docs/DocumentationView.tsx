@@ -77,7 +77,7 @@ export const DocumentationView: React.FC = () => {
         </div>
         <ul className="list-disc pl-5 space-y-2 text-slate-700">
           <li>
-            <strong>Zero Custody Invariant:</strong> The contract holds no funds between transactions. Invariant tests executed across 128,000 fuzz calls mathematically proved <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">balanceOf(BatchPayout) == 0</code> at all times.
+            <strong>Zero Custody Invariant:</strong> The contract holds no funds between transactions. Stateful property-based invariant fuzzing executed across 128,000 handler calls verified that <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">balanceOf(BatchPayout) == 0</code> across all generated transaction sequences.
           </li>
           <li>
             <strong>Atomicity:</strong> If any recipient transfer fails, the entire transaction reverts, leaving payer balances and allowances untouched.

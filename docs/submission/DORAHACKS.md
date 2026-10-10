@@ -44,7 +44,7 @@ Pariter provides a compact, non-custodial settlement workflow tailored directly 
 
 1. **Smart Contract Invariants:**
    - 19 Foundry tests pass (`forge test`).
-   - Invariant testing proves `usdc.balanceOf(BatchPayout) == 0` across 128,000 randomized state changes. Zero funds are retained in the contract.
+   - Invariant property fuzzing verifies `usdc.balanceOf(BatchPayout) == 0` across 128,000 randomized state transitions without any residual fund retention.
 2. **Frontend Precision Arithmetic:**
    - 18 Vitest unit tests verify exact integer `bigint` arithmetic, zero floating-point math, strict 6-decimal parsing, and checksum enforcement.
 3. **Onchain Settlement:**

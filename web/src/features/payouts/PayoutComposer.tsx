@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { useAccount, useReadContract, useBalance } from 'wagmi';
-import { Plus, Trash2, AlertCircle, AlertTriangle, ArrowRight, Upload, Info } from 'lucide-react';
+import { useAccount, useReadContract, useBalance, useConnect } from 'wagmi';
+import { Plus, Trash2, AlertCircle, AlertTriangle, ArrowRight, Upload, Info, Wallet } from 'lucide-react';
 import {
   parseUsdc,
   formatUsdc,
@@ -8,7 +8,7 @@ import {
   sumAmounts,
   validateRecipientAddress,
 } from '../../lib/money/usdc';
-import { ARC_USDC_ERC20_ADDRESS, ARC_CHAIN_ID } from '../../lib/contracts/addresses';
+import { ARC_USDC_ERC20_ADDRESS, ARC_CHAIN_ID, IS_MAINNET_DEPLOYED } from '../../lib/contracts/addresses';
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { BatchReviewModal } from './BatchReviewModal';
 
@@ -21,6 +21,7 @@ export interface RecipientRow {
 
 export const PayoutComposer: React.FC = () => {
   const { address, isConnected, chainId } = useAccount();
+  const { connect, connectors } = useConnect();
 
   const [rows, setRows] = useState<RecipientRow[]>([
     { id: '1', address: '', amount: '', memo: '' },
@@ -105,7 +106,7 @@ export const PayoutComposer: React.FC = () => {
     return activeValidations.every((v) => v.addressValid && v.amountValid && v.baseUnits > 0n);
   }, [activeRowCount, rowValidations]);
 
-  const hasSufficientErc20 = payerErc20Balance >= totalBaseUnits;
+  const hasSufficientErc20 = !isConnected || payerErc20Balance >= totalBaseUnits;
 
   // Actions
   const addRow = () => {
@@ -173,13 +174,27 @@ export const PayoutComposer: React.FC = () => {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowImportModal(true)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-white border border-[#D0D5DD] text-slate-700 hover:bg-slate-50 transition-colors"
+            aria-label="Import recipients from CSV or text"
+            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-white border border-[#D0D5DD] text-slate-700 hover:bg-slate-50 transition-colors focus-visible:ring-1 focus-visible:ring-slate-900"
           >
             <Upload className="w-3.5 h-3.5" />
             <span>Import CSV / Text</span>
           </button>
         </div>
       </div>
+
+      {/* Deployment Mode Advisory */}
+      {!IS_MAINNET_DEPLOYED && (
+        <div className="mb-6 p-4 rounded bg-slate-50 border border-slate-200 text-xs text-slate-700 flex items-start space-x-3">
+          <Info className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
+          <div className="space-y-0.5">
+            <span className="font-bold text-slate-900 block">Pre-Deployment Review Mode</span>
+            <p>
+              Arc Mainnet contract deployment is pending operator authorization. The composer and precision validation math are fully active for review and testing.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Balance Bar & Gas Advisory */}
       {isConnected && (
@@ -222,7 +237,7 @@ export const PayoutComposer: React.FC = () => {
       {/* Recipient Table */}
       <div className="bg-white border border-[#E4E7EC] rounded-t overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs" aria-label="Recipient payments list">
             <thead>
               <tr className="bg-slate-50 border-b border-[#E4E7EC] text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
                 <th className="py-2.5 px-3 w-10 text-center">#</th>
@@ -242,6 +257,7 @@ export const PayoutComposer: React.FC = () => {
                       <input
                         type="text"
                         value={row.address}
+                        aria-label={`Recipient address row ${idx + 1}`}
                         onChange={(e) => updateRow(row.id, 'address', e.target.value)}
                         placeholder="0x..."
                         className={`w-full px-2.5 py-1.5 rounded font-mono text-xs border ${
@@ -262,6 +278,7 @@ export const PayoutComposer: React.FC = () => {
                         <input
                           type="text"
                           value={row.amount}
+                          aria-label={`USDC amount row ${idx + 1}`}
                           onChange={(e) => updateRow(row.id, 'amount', e.target.value)}
                           placeholder="0.00"
                           className={`w-full px-2.5 py-1.5 rounded font-mono text-xs text-right pr-12 border tabular-nums ${
@@ -282,6 +299,7 @@ export const PayoutComposer: React.FC = () => {
                       <input
                         type="text"
                         value={row.memo}
+                        aria-label={`Local memo row ${idx + 1}`}
                         onChange={(e) => updateRow(row.id, 'memo', e.target.value)}
                         placeholder="e.g. October Milestone"
                         className="w-full px-2.5 py-1.5 rounded text-xs border border-slate-300 focus:border-slate-800 outline-none"
@@ -290,7 +308,8 @@ export const PayoutComposer: React.FC = () => {
                     <td className="py-2 px-3 text-center">
                       <button
                         onClick={() => removeRow(row.id)}
-                        className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors"
+                        aria-label={`Remove recipient row ${idx + 1}`}
+                        className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors focus-visible:ring-1 focus-visible:ring-red-500"
                         title="Remove row"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -307,7 +326,8 @@ export const PayoutComposer: React.FC = () => {
         <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
           <button
             onClick={addRow}
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
+            aria-label="Add new recipient"
+            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm focus-visible:ring-1 focus-visible:ring-slate-900"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Recipient</span>
@@ -339,14 +359,24 @@ export const PayoutComposer: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-4">
-          <button
-            onClick={() => setShowReviewModal(true)}
-            disabled={!isConnected || !isFormValid || !hasSufficientErc20}
-            className="flex items-center space-x-2 px-6 py-2.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-          >
-            <span>Review Batch Payout</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {!isConnected ? (
+            <button
+              onClick={() => connect({ connector: connectors[0] })}
+              className="flex items-center space-x-2 px-5 py-2.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900"
+            >
+              <Wallet className="w-4 h-4" />
+              <span>Connect Wallet to Review</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowReviewModal(true)}
+              disabled={!isFormValid || !hasSufficientErc20}
+              className="flex items-center space-x-2 px-6 py-2.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900"
+            >
+              <span>Review Batch Payout</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 

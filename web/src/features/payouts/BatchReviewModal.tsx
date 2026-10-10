@@ -11,6 +11,7 @@ import { X, CheckCircle2, AlertCircle, Loader2, ArrowRight, ExternalLink } from 
 import {
   ARC_USDC_ERC20_ADDRESS,
   BATCH_PAYOUT_ADDRESS,
+  IS_MAINNET_DEPLOYED,
 } from '../../lib/contracts/addresses';
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { batchPayoutAbi } from '../../lib/contracts/batchPayoutAbi';
@@ -140,18 +141,32 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
     }
   }, [isPayoutWritePending, isPayoutMining, isPayoutSuccess, payoutHash, onSuccess]);
 
+  const formatErrorMessage = (err: Error): string => {
+    const msg = err.message || '';
+    if (msg.includes('User rejected') || msg.includes('user rejected') || msg.includes('User denied')) {
+      return 'Transaction request was cancelled by the user in the wallet.';
+    }
+    if (msg.includes('insufficient funds') || msg.includes('exceeds balance')) {
+      return 'Insufficient USDC funds for transfer amount or native gas fees.';
+    }
+    if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout') || msg.includes('failed to fetch')) {
+      return 'Network connection to Arc RPC timed out or was interrupted. Please check network connectivity.';
+    }
+    return msg.length > 200 ? `${msg.slice(0, 200)}...` : msg;
+  };
+
   // Handle errors
   useEffect(() => {
     if (approvalWriteError) {
-      setErrorMessage(approvalWriteError.message);
+      setErrorMessage(formatErrorMessage(approvalWriteError));
       setStep('REVIEW');
     }
     if (payoutWriteError) {
-      setErrorMessage(payoutWriteError.message);
+      setErrorMessage(formatErrorMessage(payoutWriteError));
       setStep('REVIEW');
     }
     if (payoutReceiptError) {
-      setErrorMessage(payoutReceiptError.message);
+      setErrorMessage(formatErrorMessage(payoutReceiptError));
       setStep('FAILED');
     }
   }, [approvalWriteError, payoutWriteError, payoutReceiptError]);
@@ -354,7 +369,11 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                   </div>
                 </div>
 
-                {requiresApproval && step !== 'APPROVED' && step !== 'CONFIRMED' && (
+                {!IS_MAINNET_DEPLOYED ? (
+                  <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2.5 py-1 rounded">
+                    Deployment Pending
+                  </span>
+                ) : requiresApproval && step !== 'APPROVED' && step !== 'CONFIRMED' ? (
                   <button
                     onClick={handleApprove}
                     disabled={step === 'AWAITING_APPROVAL' || step === 'APPROVAL_PENDING'}
@@ -369,7 +388,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                       <span>Sign Approval</span>
                     )}
                   </button>
-                )}
+                ) : null}
               </div>
 
               {/* Step 2: Atomic Batch Settlement */}
@@ -398,7 +417,11 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                   </div>
                 </div>
 
-                {(!requiresApproval || step === 'APPROVED') && step !== 'CONFIRMED' && (
+                {!IS_MAINNET_DEPLOYED ? (
+                  <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2.5 py-1 rounded">
+                    Deployment Pending
+                  </span>
+                ) : (!requiresApproval || step === 'APPROVED') && step !== 'CONFIRMED' ? (
                   <button
                     onClick={handleExecutePayout}
                     disabled={step === 'AWAITING_PAYOUT' || step === 'PAYOUT_PENDING'}
@@ -416,7 +439,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                       </>
                     )}
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
           </div>

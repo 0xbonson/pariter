@@ -251,6 +251,25 @@ contract BatchPayoutTest is Test {
         assertEq(usdc.balanceOf(recipient1), 100 * 1e6);
     }
 
+    function test_BatchSucceedsEvenIfDirectTransferOccurs() public {
+        // Someone sends 10 USDC directly to payoutContract prior to batch
+        usdc.mint(address(payoutContract), 10 * 1e6);
+        assertEq(usdc.balanceOf(address(payoutContract)), 10 * 1e6);
+
+        address[] memory recipients = new address[](1);
+        recipients[0] = recipient1;
+
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 50 * 1e6;
+
+        vm.prank(payer);
+        payoutContract.executeBatch(recipients, amounts, sampleBatchId, sampleCommitment);
+
+        // Pre-existing balance is preserved, batch execution is not DoS-blocked
+        assertEq(usdc.balanceOf(address(payoutContract)), 10 * 1e6);
+        assertEq(usdc.balanceOf(recipient1), 50 * 1e6);
+    }
+
     // --- Balance & Allowance Failures ---
 
     function test_RevertOnInsufficientAllowance() public {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodeEventTopics, encodeAbiParameters, parseAbiParameters, keccak256, toHex } from 'viem';
+import { encodeEventTopics, keccak256, toHex } from 'viem';
 import { batchPayoutAbi } from '../../lib/contracts/batchPayoutAbi';
 import { formatUsdc } from '../../lib/money/usdc';
 

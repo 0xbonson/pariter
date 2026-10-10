@@ -52,8 +52,13 @@ export const ReceiptVerifier: React.FC = () => {
   });
 
   const handleVerify = async (hashToVerify?: string) => {
-    const rawHash = (hashToVerify || inputHash).trim();
+    let rawHash = (hashToVerify || inputHash).trim();
     if (!rawHash) return;
+
+    // Allow 64-character hash without 0x
+    if (!rawHash.startsWith('0x') && rawHash.length === 64) {
+      rawHash = `0x${rawHash}`;
+    }
 
     if (!rawHash.startsWith('0x') || rawHash.length !== 66) {
       setReceipt({
@@ -71,10 +76,36 @@ export const ReceiptVerifier: React.FC = () => {
 
     try {
       // 1. Fetch transaction and receipt from Arc RPC
+      let networkErrorMsg: string | null = null;
+
       const [tx, txReceipt] = await Promise.all([
-        publicClient.getTransaction({ hash: rawHash as Hash }).catch(() => null),
-        publicClient.getTransactionReceipt({ hash: rawHash as Hash }).catch(() => null),
+        publicClient.getTransaction({ hash: rawHash as Hash }).catch((err) => {
+          const msg = err?.message || '';
+          if (!msg.includes('could not be found') && !msg.includes('not found')) {
+            networkErrorMsg = msg || 'Transaction query failed';
+          }
+          return null;
+        }),
+        publicClient.getTransactionReceipt({ hash: rawHash as Hash }).catch((err) => {
+          const msg = err?.message || '';
+          if (!msg.includes('could not be found') && !msg.includes('not found')) {
+            networkErrorMsg = msg || 'Receipt query failed';
+          }
+          return null;
+        }),
       ]);
+
+      if (networkErrorMsg && !tx && !txReceipt) {
+        setReceipt({
+          status: 'ERROR',
+          txHash: rawHash,
+          items: [],
+          tokenTransfersMatched: 0,
+          verificationMessage: `Arc JSON-RPC network error: ${networkErrorMsg}. Verification service is temporarily unable to reach Arc Mainnet.`,
+        });
+        setIsVerifying(false);
+        return;
+      }
 
       if (!tx && !txReceipt) {
         setReceipt({
@@ -82,7 +113,7 @@ export const ReceiptVerifier: React.FC = () => {
           txHash: rawHash,
           items: [],
           tokenTransfersMatched: 0,
-          verificationMessage: 'Transaction was not found on Arc Mainnet (Chain ID 5042). It may still be unindexed or invalid.',
+          verificationMessage: 'Transaction was not found on Arc Mainnet (Chain ID 5042). It may still be unindexed, discarded from the mempool, or invalid.',
         });
         setIsVerifying(false);
         return;

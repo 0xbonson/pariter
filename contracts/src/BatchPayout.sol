@@ -68,7 +68,7 @@ contract BatchPayout is ReentrancyGuard {
     error RecipientCannotBeSelf(uint256 index);
     error ZeroAmount(uint256 index);
     error BatchAlreadyExecuted(address payer, bytes32 batchId);
-    error ResidualBalance(uint256 balance);
+    error BalanceMismatch(uint256 balanceBefore, uint256 balanceAfter);
 
     /**
      * @notice Initializes the BatchPayout contract with the immutable USDC token address.
@@ -83,7 +83,7 @@ contract BatchPayout is ReentrancyGuard {
      * @notice Atomically settles a multi-recipient batch payout of USDC.
      * @dev Payer must approve this contract for at least `totalTransferred` before execution.
      *      All transfers must succeed or the entire batch reverts.
-     *      Contract retains zero USDC balance after execution.
+     *      Contract retains zero net USDC balance after execution.
      * @param recipients Array of destination addresses.
      * @param amounts Array of transfer amounts in USDC base units (6 decimals).
      * @param batchId Unique 32-byte identifier scoped to msg.sender.
@@ -123,6 +123,8 @@ contract BatchPayout is ReentrancyGuard {
             }
         }
 
+        uint256 balanceBefore = usdc.balanceOf(address(this));
+
         // Pull total exact authorized USDC from payer to this contract
         usdc.safeTransferFrom(msg.sender, address(this), totalTransferred);
 
@@ -139,9 +141,9 @@ contract BatchPayout is ReentrancyGuard {
             }
         }
 
-        // Post-condition: Ensure no residual USDC remains in contract
-        uint256 residual = usdc.balanceOf(address(this));
-        if (residual != 0) revert ResidualBalance(residual);
+        // Post-condition: Ensure exact conservation of balance (zero net retention for batch)
+        uint256 balanceAfter = usdc.balanceOf(address(this));
+        if (balanceAfter != balanceBefore) revert BalanceMismatch(balanceBefore, balanceAfter);
 
         // Emit high-level settlement confirmation
         emit BatchSettled(
