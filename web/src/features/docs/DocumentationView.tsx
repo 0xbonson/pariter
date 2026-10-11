@@ -1,5 +1,13 @@
-import { ExternalLink, ShieldCheck, Terminal, Layers } from 'lucide-react';
-import { ARC_CHAIN_ID, ARC_USDC_ERC20_ADDRESS, BATCH_PAYOUT_ADDRESS, IS_MAINNET_DEPLOYED } from '../../lib/contracts/addresses';
+import React from 'react';
+import { ExternalLink, ShieldCheck, Layers, Scale, DollarSign, FileCheck } from 'lucide-react';
+import {
+  ARC_CHAIN_ID,
+  ARC_USDC_ERC20_ADDRESS,
+  BATCH_PAYOUT_ADDRESS,
+  IS_MAINNET_DEPLOYED,
+  EXPECTED_BATCH_PAYOUT_RUNTIME_CODEHASH,
+} from '../../lib/contracts/addresses';
+import { SETTLEMENT_LEGAL_DISCLAIMER } from '../verification/settlementVerification';
 
 export const DocumentationView: React.FC = () => {
   return (
@@ -8,9 +16,98 @@ export const DocumentationView: React.FC = () => {
       <div className="pb-6 border-b border-[#E4E7EC]">
         <h1 className="text-2xl font-bold tracking-tight text-[#0F172A]">System Specifications & Audit Guide</h1>
         <p className="text-sm text-[#475467] mt-1">
-          Technical specifications, cryptographic guarantees, and independent verification procedures for Pariter on Arc Mainnet.
+          Technical specifications, cryptographic guarantees, gas economics, and independent verification procedures for Pariter on Arc Mainnet.
         </p>
       </div>
+
+      {/* Positioning & Competitive Landscape */}
+      <section className="bg-white border border-[#E4E7EC] rounded p-5 space-y-4 shadow-sm">
+        <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
+          <Scale className="w-4 h-4 text-blue-700" />
+          <h2>Positioning & Competitive Landscape</h2>
+        </div>
+        <p>
+          <strong>Pariter</strong> is an open-source, non-custodial USDC batch payout and independent settlement verification tool designed specifically for small teams, grant programs, and contributor communities on Arc Mainnet.
+        </p>
+        <p className="text-slate-600">
+          Batch transfers and settlement verification are established primitives in Web3. Pariter does not claim to have invented batch transfers or receipt verification. Several capable solutions exist across the ecosystem:
+        </p>
+        <div className="border border-slate-200 rounded overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold uppercase text-[11px]">
+                <th className="py-2.5 px-3">Tool / Platform</th>
+                <th className="py-2.5 px-3">Target Audience</th>
+                <th className="py-2.5 px-3">Architecture & Pricing</th>
+                <th className="py-2.5 px-3">Key Trade-off</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              <tr className="hover:bg-slate-50/50">
+                <td className="py-2 px-3 font-semibold text-slate-900">Pariter (This project)</td>
+                <td className="py-2 px-3">Small teams, grant organizers, bounties</td>
+                <td className="py-2 px-3">100% open-source, <strong>$0 protocol fee</strong>, pure client-side</td>
+                <td className="py-2 px-3 text-slate-500">Focused exclusively on Arc USDC; no multi-token or fiat off-ramps</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="py-2 px-3 font-semibold text-slate-900">payrail</td>
+                <td className="py-2 px-3">DAOs, operations teams</td>
+                <td className="py-2 px-3">USDC/EURC batches, maker/checker multisig, SaaS backend</td>
+                <td className="py-2 px-3 text-slate-500">Hosted platform with managed infrastructure</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="py-2 px-3 font-semibold text-slate-900">Arctools Multisender</td>
+                <td className="py-2 px-3">General token airdrops</td>
+                <td className="py-2 px-3">Multi-token sender, published per-batch service fee</td>
+                <td className="py-2 px-3 text-slate-500">Charges platform service fee per dispersal batch</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="py-2 px-3 font-semibold text-slate-900">Request Finance</td>
+                <td className="py-2 px-3">Enterprises, corporate finance</td>
+                <td className="py-2 px-3">Full-suite crypto invoicing, multi-chain, accounting sync</td>
+                <td className="py-2 px-3 text-slate-500">Enterprise subscription SaaS; heavyweight setup</td>
+              </tr>
+              <tr className="hover:bg-slate-50/50">
+                <td className="py-2 px-3 font-semibold text-slate-900">Ryntra</td>
+                <td className="py-2 px-3">Audit & compliance teams</td>
+                <td className="py-2 px-3">Verifiable payment receipt and proof engine</td>
+                <td className="py-2 px-3 text-slate-500">Enterprise verification infrastructure</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Gas Economics & Real Fee Breakdown */}
+      <section className="bg-white border border-[#E4E7EC] rounded p-5 space-y-4 shadow-sm">
+        <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
+          <DollarSign className="w-4 h-4 text-emerald-700" />
+          <h2>Gas Economics & Fee Transparency</h2>
+        </div>
+        <p>
+          On Arc Mainnet, gas fees are paid directly in native USDC (18 decimals). Pariter discloses all base transaction overheads honestly so teams understand the trade-offs between individual transfers and atomic batch execution:
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">1-Time ERC-20 Approval</span>
+            <span className="font-mono text-sm font-bold text-slate-900 mt-1 block">~45,000 gas</span>
+            <span className="text-slate-500 text-[11px]">~0.0009 USDC at 20 gwei. Required once per payer allowance.</span>
+          </div>
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">Single Individual Transfer</span>
+            <span className="font-mono text-sm font-bold text-slate-900 mt-1 block">~29,000 gas</span>
+            <span className="text-slate-500 text-[11px]">~0.00058 USDC per single recipient. No contract loop overhead.</span>
+          </div>
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">Atomic Batch Payout</span>
+            <span className="font-mono text-sm font-bold text-slate-900 mt-1 block">Base ~36k + ~28k/recip</span>
+            <span className="text-slate-500 text-[11px]">Guarantees all-or-nothing atomicity. 50 recipients settle in 1 tx.</span>
+          </div>
+        </div>
+        <div className="p-3 bg-blue-50/50 border border-blue-200 rounded text-[11px] text-blue-900">
+          <strong>Efficiency Guideline:</strong> For 1 single recipient, a standard wallet transfer is slightly cheaper because it skips the contract base entry and Net Balance Conservation check. For 5 or more recipients, atomic batching provides major operational savings by eliminating dozens of separate wallet signatures and preventing partial execution failures.
+        </div>
+      </section>
 
       {/* Network & Contract Identifiers */}
       <section className="bg-white border border-[#E4E7EC] rounded p-5 space-y-4 shadow-sm">
@@ -60,23 +157,36 @@ export const DocumentationView: React.FC = () => {
               )}
             </div>
           </div>
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded md:col-span-2">
+            <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">Compiled Runtime Bytecode Hash (Keccak256)</span>
+            <code className="font-mono text-slate-900 text-[11px] block mt-0.5 break-all">{EXPECTED_BATCH_PAYOUT_RUNTIME_CODEHASH}</code>
+            <span className="text-slate-500 text-[11px]">Compiled with Solidity 0.8.37 (cancun, 200 runs). Verified during every public receipt audit.</span>
+          </div>
         </div>
       </section>
 
-      {/* Independent Verification via CLI */}
+      {/* Independent Verification & Proof Pack Bundle */}
       <section className="bg-white border border-[#E4E7EC] rounded p-5 space-y-4 shadow-sm">
         <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
-          <Terminal className="w-4 h-4 text-blue-700" />
-          <h2>Independent Verification (CLI / curl)</h2>
+          <FileCheck className="w-4 h-4 text-emerald-700" />
+          <h2>Independent Proof Pack & CLI Auditing</h2>
         </div>
         <p>
-          You do not need to trust this web application. Any reviewer can audit a Pariter settlement receipt using standard command-line tools against the Arc JSON-RPC.
+          You do not need to trust this web application. Any auditor can independently audit a Pariter settlement receipt using standard command-line tools or export an inspectable Proof Pack bundle:
         </p>
         <div className="bg-slate-900 text-slate-100 p-3.5 rounded font-mono text-[11px] overflow-x-auto space-y-2">
           <div className="text-slate-400"># 1. Query transaction receipt and execution logs using cast:</div>
           <div>cast receipt &lt;TX_HASH&gt; --rpc-url https://rpc.mainnet.arc.io</div>
-          <div className="text-slate-400 pt-2"># 2. Reconcile canonical ERC-20 USDC transfers against BatchSettled event:</div>
+          <div className="text-slate-400 pt-2"># 2. Verify runtime bytecode matches expected compiled codehash:</div>
+          <div>cast code {BATCH_PAYOUT_ADDRESS} --rpc-url https://rpc.mainnet.arc.io | cast keccak</div>
+          <div className="text-slate-400 pt-2"># 3. Reconcile canonical ERC-20 USDC transfers against BatchSettled event:</div>
           <div># Verify that totalTransferred in BatchSettled matches inbound payer transfer and outbound recipient transfers</div>
+        </div>
+        <div className="p-3.5 rounded bg-slate-50 border border-slate-200 text-slate-600 text-[11px] flex items-start space-x-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong>Proof Pack Export:</strong> The Public Settlement Verifier allows export of machine-readable <code className="font-mono">pariter-proof-pack.json</code> bundles and <code className="font-mono">pariter-reconciliation.csv</code> reports containing cryptographic event logs, runtime bytecode hashes, and 1-to-1 integer reconciliation evidence.
+          </div>
         </div>
       </section>
 
@@ -105,11 +215,12 @@ export const DocumentationView: React.FC = () => {
         </ul>
       </section>
 
-      {/* Competition Notice */}
-      <section className="p-4 rounded bg-slate-100 border border-slate-200 text-slate-600 text-[11px] space-y-1">
-        <p className="font-semibold text-slate-800">Circle Arc Microgrants 2026 Submission Notice</p>
-        <p>
-          Pariter is an independent open-source research and engineering project built for the Arc Microgrants program on DoraHacks. It is not affiliated with Circle Internet Financial, Arc Network, or DoraHacks.
+      {/* Legal & Factual Disclaimer */}
+      <section className="p-4 rounded bg-slate-100 border border-slate-200 text-slate-600 text-[11px] space-y-2">
+        <p className="font-semibold text-slate-800">Legal & Technical Boundaries</p>
+        <p>{SETTLEMENT_LEGAL_DISCLAIMER}</p>
+        <p className="text-slate-500 pt-1">
+          Circle Arc Microgrants 2026 Submission: Pariter is an independent open-source research and engineering project built for the Arc Microgrants program on DoraHacks. It is not affiliated with Circle Internet Financial, Arc Network, or DoraHacks.
         </p>
       </section>
     </div>

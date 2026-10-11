@@ -3,12 +3,13 @@ import {
   encodeEventTopics,
   encodeAbiParameters,
   parseAbiParameters,
+  keccak256,
   type TransactionReceipt,
   type Transaction,
 } from 'viem';
 import { batchPayoutAbi } from '../../lib/contracts/batchPayoutAbi';
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
-import { verifySettlementTransaction } from './settlementVerification';
+import { verifySettlementTransaction, reconcileSettlementWithIntended } from './settlementVerification';
 
 const VERIFIED_CONTRACT = '0x1111111111111111111111111111111111111111' as `0x${string}`;
 const ATTACKER_CONTRACT = '0x9999999999999999999999999999999999999999' as `0x${string}`;
@@ -352,5 +353,148 @@ describe('Settlement Verification Engine — Cryptographic Integrity & Adversari
     expect(result.status).toBe('EVIDENCE_MISMATCH');
     expect(result.verificationMessage).toContain('Batch ID mismatch in payout event');
     expect(result.verificationMessage).toContain(impostorBatchId);
+  });
+
+  it('BYTECODE AUTHENTICITY: Verifies contract bytecode hash against approved release', () => {
+    const totalAmount = 1_000_000n;
+    const logs = [
+      buildErc20TransferLog(CANONICAL_USDC, PAYER, VERIFIED_CONTRACT, totalAmount),
+      buildErc20TransferLog(CANONICAL_USDC, VERIFIED_CONTRACT, RECIP1, totalAmount),
+      buildPayoutExecutedLog(VERIFIED_CONTRACT, PAYER, BATCH_ID, RECIP1, totalAmount, 0n),
+      buildBatchSettledLog(VERIFIED_CONTRACT, PAYER, BATCH_ID, 1n, totalAmount),
+    ];
+
+    const dummyBytecode = '0x608060405234801561001057600080fd5b50' as `0x${string}`;
+    const expectedCodehash = keccak256(dummyBytecode);
+
+    const result = verifySettlementTransaction({
+      txHash: '0xgoodbytecode0000000000000000000000000000000000000000000000000000',
+      tx: { chainId: 5042 } as Transaction,
+      receipt: {
+        status: 'success',
+        blockNumber: 1011n,
+        gasUsed: 80000n,
+        logs,
+      } as unknown as TransactionReceipt,
+      configuredContractAddress: VERIFIED_CONTRACT,
+      canonicalUsdcAddress: CANONICAL_USDC,
+      hasContractCode: true,
+      contractBytecode: dummyBytecode,
+      expectedRuntimeCodehash: expectedCodehash,
+    });
+
+    expect(result.status).toBe('VERIFIED_SETTLEMENT');
+    expect(result.onchainStatus).toBe('ONCHAIN_VERIFIED');
+    expect(result.bytecodeVerified).toBe(true);
+    expect(result.actualBytecodeHash).toBe(expectedCodehash);
+  });
+
+  it('ADVERSARIAL: Rejects settlement with BYTECODE_MISMATCH when runtime bytecode hash differs', () => {
+    const totalAmount = 1_000_000n;
+    const logs = [
+      buildErc20TransferLog(CANONICAL_USDC, PAYER, VERIFIED_CONTRACT, totalAmount),
+      buildErc20TransferLog(CANONICAL_USDC, VERIFIED_CONTRACT, RECIP1, totalAmount),
+      buildPayoutExecutedLog(VERIFIED_CONTRACT, PAYER, BATCH_ID, RECIP1, totalAmount, 0n),
+      buildBatchSettledLog(VERIFIED_CONTRACT, PAYER, BATCH_ID, 1n, totalAmount),
+    ];
+
+    const alteredBytecode = '0xdeadbeefdeadbeef';
+    const approvedCodehash = '0x2f07db6a943509dc0879fea7f223d2cdd33b855a6699dc5872984b4987dbc66e';
+
+    const result = verifySettlementTransaction({
+      txHash: '0xbadbytecode00000000000000000000000000000000000000000000000000000',
+      tx: { chainId: 5042 } as Transaction,
+      receipt: {
+        status: 'success',
+        blockNumber: 1012n,
+        gasUsed: 80000n,
+        logs,
+      } as unknown as TransactionReceipt,
+      configuredContractAddress: VERIFIED_CONTRACT,
+      canonicalUsdcAddress: CANONICAL_USDC,
+      hasContractCode: true,
+      contractBytecode: alteredBytecode,
+      expectedRuntimeCodehash: approvedCodehash,
+    });
+
+    expect(result.status).toBe('BYTECODE_MISMATCH');
+    expect(result.onchainStatus).toBe('BYTECODE_MISMATCH');
+    expect(result.bytecodeVerified).toBe(false);
+    expect(result.verificationMessage).toContain('Contract runtime bytecode mismatch');
+  });
+});
+
+describe('Offchain CSV Reconciliation Engine (1-to-1 Integer Base Units)', () => {
+  const onchainItems = [
+    {
+      payer: PAYER,
+      batchId: BATCH_ID,
+      recipient: RECIP1,
+      amount: 100_000_000n, // 100.00 USDC
+      index: 0,
+    },
+    {
+      payer: PAYER,
+      batchId: BATCH_ID,
+      recipient: RECIP2,
+      amount: 50_250_000n, // 50.25 USDC
+      index: 1,
+    },
+  ];
+
+  it('reports 100% INTENDED_PAYOUT_RECONCILED when intended list matches perfectly', () => {
+    const intendedList = [
+      { address: RECIP1, amount: '100.00', memo: 'Milestone 1' },
+      { address: RECIP2, amount: '50.25', memo: 'Milestone 2' },
+    ];
+
+    const result = reconcileSettlementWithIntended(onchainItems, intendedList);
+
+    expect(result.status).toBe('INTENDED_PAYOUT_RECONCILED');
+    expect(result.hasIntendedList).toBe(true);
+    expect(result.matchedRecipientCount).toBe(2);
+    expect(result.discrepancyCount).toBe(0);
+    expect(result.totalIntendedBaseUnits).toBe(150_250_000n);
+    expect(result.totalOnchainBaseUnits).toBe(150_250_000n);
+    expect(result.items.every((it) => it.status === 'MATCH')).toBe(true);
+  });
+
+  it('detects amount discrepancy (MISMATCH) when recipient receives different amount than intended', () => {
+    const intendedList = [
+      { address: RECIP1, amount: '100.00' },
+      { address: RECIP2, amount: '60.00' }, // Settled was 50.25!
+    ];
+
+    const result = reconcileSettlementWithIntended(onchainItems, intendedList);
+
+    expect(result.status).toBe('RECONCILIATION_MISMATCH');
+    expect(result.discrepancyCount).toBe(1);
+    expect(result.matchedRecipientCount).toBe(1);
+    expect(result.items[1].status).toBe('MISMATCH');
+    expect(result.items[1].details).toContain('Amount discrepancy');
+  });
+
+  it('detects INTENDED_ONLY when intended recipient is missing from onchain settlement', () => {
+    const missingRecip = '0xdddddddddddddddddddddddddddddddddddddddd';
+    const intendedList = [
+      { address: RECIP1, amount: '100.00' },
+      { address: missingRecip, amount: '25.00' },
+    ];
+
+    const result = reconcileSettlementWithIntended(onchainItems, intendedList);
+
+    expect(result.status).toBe('RECONCILIATION_MISMATCH');
+    expect(result.discrepancyCount).toBe(2); // missingRecip + unmatched RECIP2 onchain
+    expect(result.items.some((it) => it.status === 'INTENDED_ONLY' && it.recipient.toLowerCase() === missingRecip.toLowerCase())).toBe(true);
+    expect(result.items.some((it) => it.status === 'ONCHAIN_ONLY' && it.recipient.toLowerCase() === RECIP2.toLowerCase())).toBe(true);
+  });
+
+  it('returns NOT_RECONCILED when no intended list is provided', () => {
+    const result = reconcileSettlementWithIntended(onchainItems, undefined);
+
+    expect(result.status).toBe('NOT_RECONCILED');
+    expect(result.hasIntendedList).toBe(false);
+    expect(result.discrepancyCount).toBe(0);
+    expect(result.items.length).toBe(2);
   });
 });

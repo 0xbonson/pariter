@@ -95,6 +95,70 @@ describe('batchParser and recipient limits', () => {
     const malformedRes = parseRecipientText(malformed);
     expect(malformedRes.error).toContain('Line 2 format invalid. Expected: address, amount, [memo]');
   });
+
+  it('correctly handles quoted fields containing commas and escaped quotes ("")', () => {
+    const csv = `"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "150.00", "Grant Milestone 1, Core Dev"
+"0x1234567890123456789012345678901234567890", "50.25", "Special ""Hero"" Contributor Bounty"`;
+    const result = parseRecipientText(csv);
+
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBe(2);
+    expect(result.rows[0].address).toBe('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+    expect(result.rows[0].amount).toBe('150.00');
+    expect(result.rows[0].memo).toBe('Grant Milestone 1, Core Dev');
+    expect(result.rows[1].memo).toBe('Special "Hero" Contributor Bounty');
+  });
+
+  it('detects and skips optional header rows automatically', () => {
+    const csvWithHeader = `Address, Amount, Memo
+0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, 200.00, Core Lead
+0x1234567890123456789012345678901234567890, 75.50, Documentation`;
+    const result = parseRecipientText(csvWithHeader);
+
+    expect(result.error).toBeUndefined();
+    expect(result.hasHeaderRow).toBe(true);
+    expect(result.rows.length).toBe(2);
+    expect(result.rows[0].address).toBe('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+    expect(result.rows[0].amount).toBe('200.00');
+  });
+
+  it('tracks duplicate recipient addresses and counts', () => {
+    const csvWithDuplicates = `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, 10.00, Part 1
+0x1234567890123456789012345678901234567890, 20.00, Unique
+0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, 15.00, Part 2`;
+    const result = parseRecipientText(csvWithDuplicates);
+
+    expect(result.error).toBeUndefined();
+    expect(result.rows.length).toBe(3);
+    expect(result.duplicateCount).toBe(1);
+    expect(result.duplicateAddresses).toContain('0xd8da6bf26964af9d7eed9e03e53415d37aa96045');
+  });
+
+  it('strictly rejects the zero address (0x000...000)', () => {
+    const csv = `0x0000000000000000000000000000000000000000, 100.00, Zero Burn`;
+    const result = parseRecipientText(csv);
+
+    expect(result.rows.length).toBe(0);
+    expect(result.error).toContain('Zero address (0x000...000) cannot receive payouts');
+  });
+
+  it('strictly rejects invalid USDC decimals exceeding 6 decimal places', () => {
+    const csv = `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, 10.1234567, Exceeds 6 decimals`;
+    const result = parseRecipientText(csv);
+
+    expect(result.rows.length).toBe(0);
+    expect(result.error).toContain('Invalid USDC amount');
+  });
+
+  it('strictly rejects non-positive or negative amounts', () => {
+    const csvZero = `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, 0.00, Zero amount`;
+    const resultZero = parseRecipientText(csvZero);
+    expect(resultZero.error).toContain('Amount must be greater than zero');
+
+    const csvNeg = `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, -5.00, Negative`;
+    const resultNeg = parseRecipientText(csvNeg);
+    expect(resultNeg.error).toContain('Invalid USDC amount');
+  });
 });
 
 describe('modal success callback single-execution guarantee', () => {

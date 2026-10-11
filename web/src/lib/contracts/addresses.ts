@@ -24,3 +24,17 @@ export const IS_MAINNET_DEPLOYED =
  * Maximum recipient limit enforced by the BatchPayout smart contract.
  */
 export const MAX_BATCH_RECIPIENTS = 250;
+
+/**
+ * Expected runtime codehash (keccak256) of BatchPayout compiled with solc 0.8.37 (cancun, 200 runs)
+ * and immutable Arc canonical USDC precompile (0x3600000000000000000000000000000000000000).
+ */
+export const EXPECTED_BATCH_PAYOUT_RUNTIME_CODEHASH = (
+  import.meta.env.VITE_EXPECTED_RUNTIME_CODEHASH ||
+  '0x2f07db6a943509dc0879fea7f223d2cdd33b855a6699dc5872984b4987dbc66e'
+) as `0x${string}`;
+
+/**
+ * Expected runtime bytecode length in bytes (2345 bytes / 4690 hex characters without 0x).
+ */
+export const EXPECTED_BATCH_PAYOUT_BYTECODE_LENGTH = 2345;

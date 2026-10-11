@@ -20,6 +20,12 @@ export interface RecipientRow {
   memo: string;
 }
 
+export const SAMPLE_CONTRIBUTOR_CSV = `# Recipient Address, Amount (USDC), Contributor Role / Grant
+0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045, 125.000000, "Core protocol engineering"
+0x000000000000000000000000000000000000dEaD, 50.500000, "Documentation translation bounty"
+0x1111111111111111111111111111111111111111, 25.750000, "Community security review"
+0x2222222222222222222222222222222222222222, 10.000000, "Developer support triage"`;
+
 export const PayoutComposer: React.FC = () => {
   const { address, isConnected, chainId } = useAccount();
   const { connect, connectors } = useConnect();
@@ -98,6 +104,8 @@ export const PayoutComposer: React.FC = () => {
     return sumAmounts(rowValidations.map((v) => v.baseUnits));
   }, [rowValidations]);
 
+  const [confirmDuplicates, setConfirmDuplicates] = useState(false);
+
   const activeRowCount = useMemo(() => {
     return rows.filter((r) => r.address.trim() || r.amount.trim()).length;
   }, [rows]);
@@ -108,10 +116,11 @@ export const PayoutComposer: React.FC = () => {
 
   const isFormValid = useMemo(() => {
     if (activeRowCount === 0 || activeRowCount > MAX_BATCH_RECIPIENTS) return false;
+    if (hasDuplicateWarnings && !confirmDuplicates) return false;
     const activeValidations = rowValidations.filter((_, i) => !rowValidations[i].isEmpty);
     if (activeValidations.length === 0 || activeValidations.length > MAX_BATCH_RECIPIENTS) return false;
     return activeValidations.every((v) => v.addressValid && v.amountValid && v.baseUnits > 0n);
-  }, [activeRowCount, rowValidations]);
+  }, [activeRowCount, rowValidations, hasDuplicateWarnings, confirmDuplicates]);
 
   // Fee reserve: reserve at least 0.005 USDC (5,000 base units) for Arc transaction gas fees
   const estimatedGasReserveBaseUnits = 5_000n;
@@ -278,13 +287,27 @@ export const PayoutComposer: React.FC = () => {
         </div>
       )}
 
-      {/* Duplicate warning banner */}
+      {/* Duplicate warning banner with intentional acknowledgment */}
       {hasDuplicateWarnings && (
-        <div className="mb-4 p-3 rounded bg-amber-50 border border-amber-200 flex items-center space-x-2 text-xs text-amber-800">
-          <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-          <span>
-            <strong>Advisory:</strong> Duplicate recipient addresses detected. The contract permits multiple line items to the same recipient, but please verify this was intentional.
-          </span>
+        <div className="mb-4 p-3.5 rounded bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-2">
+          <div className="flex items-start space-x-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Duplicate recipient addresses detected in batch.</strong>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                The smart contract allows multiple transfers to the same address, but requires intentional confirmation before proceeding to payout review.
+              </p>
+            </div>
+          </div>
+          <label className="flex items-center space-x-2 cursor-pointer pt-1 pl-6 text-slate-900 font-semibold select-none">
+            <input
+              type="checkbox"
+              checked={confirmDuplicates}
+              onChange={(e) => setConfirmDuplicates(e.target.checked)}
+              className="rounded border-slate-300 text-slate-900 focus:ring-slate-900 h-4 w-4"
+            />
+            <span>I confirm this batch intentionally includes multiple payouts to the same address.</span>
+          </label>
         </div>
       )}
 
@@ -479,7 +502,19 @@ export const PayoutComposer: React.FC = () => {
       {showImportModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded max-w-lg w-full p-6 border border-slate-200 shadow-xl">
-            <h3 className="text-base font-bold text-slate-900">Import CSV or Tab-Separated Lines</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900">Import CSV or Tab-Separated Lines</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setImportText(SAMPLE_CONTRIBUTOR_CSV);
+                  setImportError(null);
+                }}
+                className="text-[11px] text-blue-700 hover:text-blue-900 font-semibold underline"
+              >
+                Load Sample Contributor List
+              </button>
+            </div>
             <p className="text-xs text-slate-500 mt-1">
               Enter one recipient per line in the format: <code className="bg-slate-100 px-1 py-0.5 rounded text-[11px]">0xAddress, amount, [optional memo]</code>
             </p>

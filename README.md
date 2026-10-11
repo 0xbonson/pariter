@@ -1,11 +1,11 @@
 # Pariter — Atomic USDC Settlement Engine on Arc Mainnet
 
 [![Foundry Tests](https://img.shields.io/badge/Foundry-19%2F19%20Passing-brightgreen)](https://getfoundry.sh/)
-[![Vitest](https://img.shields.io/badge/Vitest-18%2F18%20Passing-brightgreen)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Vitest-53%2F53%20Passing-brightgreen)](https://vitest.dev/)
 [![Network](https://img.shields.io/badge/Network-Arc%20Mainnet%20(5042)-blue)](https://docs.arc.io/)
 [![License](https://img.shields.io/badge/License-MIT-slate)](LICENSE)
 
-Pariter is an independent, non-custodial multi-recipient USDC payment settlement and verification engine engineered for **Arc Mainnet** (Chain ID `5042`).
+Pariter is an open-source, non-custodial USDC batch payout and independent settlement verification tool designed for small teams, grant programs, and contributor communities on **Arc Mainnet** (Chain ID `5042`).
 
 Built for the **Circle Arc Microgrants 2026** program on DoraHacks.
 
