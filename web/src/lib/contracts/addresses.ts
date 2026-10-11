@@ -19,3 +19,8 @@ export const BATCH_PAYOUT_ADDRESS = (
  */
 export const IS_MAINNET_DEPLOYED =
   BATCH_PAYOUT_ADDRESS !== '0x0000000000000000000000000000000000000000';
+
+/**
+ * Maximum recipient limit enforced by the BatchPayout smart contract.
+ */
+export const MAX_BATCH_RECIPIENTS = 250;

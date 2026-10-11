@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from 'wagmi';
 import { arcMainnet } from '../lib/chain/arcChain';
 import { Wallet, LogOut, AlertTriangle, ExternalLink } from 'lucide-react';
@@ -14,10 +14,31 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
   const { disconnect } = useDisconnect();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
+  const [walletConnectError, setWalletConnectError] = useState<string | null>(null);
 
   const isWrongNetwork = isConnected && chainId !== arcMainnet.id;
 
   const truncateAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+
+  const handleConnect = () => {
+    setWalletConnectError(null);
+    if (!connectors || connectors.length === 0 || !connectors[0]) {
+      setWalletConnectError('No Web3 wallet extension found. Please install MetaMask or Rabby.');
+      return;
+    }
+    connect(
+      { connector: connectors[0] },
+      {
+        onError: (err) => {
+          if (err.message.includes('User rejected') || err.message.includes('rejected')) {
+            setWalletConnectError('Connection request rejected in wallet.');
+          } else {
+            setWalletConnectError(err.message || 'Failed to connect wallet.');
+          }
+        },
+      }
+    );
+  };
 
   return (
     <header className="border-b border-[#E4E7EC] bg-white sticky top-0 z-40">
@@ -111,7 +132,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
             </div>
           ) : (
             <button
-              onClick={() => connect({ connector: connectors[0] })}
+              onClick={handleConnect}
               disabled={isPending}
               aria-label="Connect wallet"
               className="flex items-center space-x-2 px-3.5 py-1.5 rounded text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-slate-900"
@@ -122,6 +143,23 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
           )}
         </div>
       </div>
+
+      {/* Wallet Connection Error Banner */}
+      {walletConnectError && (
+        <div className="bg-red-50 border-t border-red-200 px-4 sm:px-6 py-2 flex items-center justify-between text-xs text-red-800">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+            <span>{walletConnectError}</span>
+          </div>
+          <button
+            onClick={() => setWalletConnectError(null)}
+            className="text-red-600 hover:text-red-900 font-bold ml-3 text-sm px-1 leading-none"
+            aria-label="Dismiss wallet error"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Mobile nav */}
       <div className="md:hidden flex border-t border-[#E4E7EC] px-4 py-2 space-x-2 bg-slate-50">

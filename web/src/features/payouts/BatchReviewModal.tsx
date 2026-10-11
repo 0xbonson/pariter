@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   useAccount,
   useReadContract,
@@ -15,6 +15,7 @@ import {
   ARC_USDC_ERC20_ADDRESS,
   BATCH_PAYOUT_ADDRESS,
   IS_MAINNET_DEPLOYED,
+  MAX_BATCH_RECIPIENTS,
 } from '../../lib/contracts/addresses';
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { batchPayoutAbi } from '../../lib/contracts/batchPayoutAbi';
@@ -53,11 +54,29 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
   const { switchChain } = useSwitchChain();
   const isWrongNetwork = chainId !== 5042;
 
+  // Snapshot of rows submitted for review/execution to prevent premature loss of payout details
+  const [displayRows, setDisplayRows] = useState<RecipientRow[]>(rows);
+
+  useEffect(() => {
+    if (step !== 'CONFIRMED' && rows.length > 0) {
+      setDisplayRows(rows);
+    }
+  }, [rows]);
+
+  const handledSuccessTxRef = useRef<string | null>(null);
+  const onSuccessRef = useRef(onSuccess);
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
+
   const [step, setStep] = useState<TxStep>('REVIEW');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [estimatedGasWei, setEstimatedGasWei] = useState<bigint>(5_000_000_000_000_000n);
   const [estimatedGasUsdc, setEstimatedGasUsdc] = useState<string>('0.0050');
+  const [isRpcGasSimulated, setIsRpcGasSimulated] = useState<boolean>(false);
   const [payoutTxHash, setPayoutTxHash] = useState<`0x${string}` | null>(null);
+
+  const isBatchSizeExceeded = displayRows.length > MAX_BATCH_RECIPIENTS;
 
   // Check current native USDC gas balance (18 decimals)
   const { data: nativeBalanceData } = useBalance({
@@ -135,17 +154,17 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
 
   // Dynamic simulation & gas estimation
   useEffect(() => {
-    if (!publicClient || !address || rows.length === 0) return;
+    if (!publicClient || !address || displayRows.length === 0) return;
 
     async function estimate() {
       try {
         const gasPrice = await publicClient!.getGasPrice();
         let estimatedUnits = 0n;
 
-        if (IS_MAINNET_DEPLOYED && currentAllowance >= totalBaseUnits) {
+        if (IS_MAINNET_DEPLOYED && currentAllowance >= totalBaseUnits && !isBatchSizeExceeded) {
           try {
-            const recipients = rows.map((r) => r.address.trim() as Address);
-            const amounts = rows.map((r) => parseUsdc(r.amount.trim()).baseUnits);
+            const recipients = displayRows.map((r) => r.address.trim() as Address);
+            const amounts = displayRows.map((r) => parseUsdc(r.amount.trim()).baseUnits);
             const dummyBatchId = keccak256(encodePacked(['address', 'uint256'], [address as Address, 0n]));
             const dummyCommitment = keccak256(encodePacked(['string'], ['']));
 
@@ -156,11 +175,14 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
               args: [recipients, amounts, dummyBatchId, dummyCommitment],
               account: address,
             });
+            setIsRpcGasSimulated(true);
           } catch {
-            estimatedUnits = BigInt(65000 + rows.length * 28000);
+            estimatedUnits = BigInt(65000 + displayRows.length * 28000);
+            setIsRpcGasSimulated(false);
           }
         } else {
-          estimatedUnits = BigInt(45000 + 65000 + rows.length * 28000);
+          estimatedUnits = BigInt(45000 + 65000 + displayRows.length * 28000);
+          setIsRpcGasSimulated(false);
         }
 
         const gasWei = estimatedUnits * gasPrice;
@@ -168,12 +190,13 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
         const usdcGas = Number(gasWei) / 1e18;
         setEstimatedGasUsdc(usdcGas > 0.000001 ? usdcGas.toFixed(6) : '< 0.000001');
       } catch {
+        setIsRpcGasSimulated(false);
         setEstimatedGasWei(5_000_000_000_000_000n);
         setEstimatedGasUsdc('~0.0050');
       }
     }
     estimate();
-  }, [publicClient, address, rows.length, currentAllowance, totalBaseUnits]);
+  }, [publicClient, address, displayRows.length, currentAllowance, totalBaseUnits, isBatchSizeExceeded]);
 
   // Synchronize approval state
   useEffect(() => {
@@ -197,14 +220,20 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
     } else if (isPayoutSuccess && payoutReceipt) {
       if (payoutReceipt.status === 'success') {
         setStep('CONFIRMED');
-        if (payoutHash) setPayoutTxHash(payoutHash);
-        onSuccess();
+        const txHash = payoutHash || (payoutReceipt.transactionHash as `0x${string}`);
+        if (txHash) setPayoutTxHash(txHash);
+
+        // Fire onSuccess strictly once per confirmed transaction hash
+        if (txHash && handledSuccessTxRef.current !== txHash) {
+          handledSuccessTxRef.current = txHash;
+          onSuccessRef.current();
+        }
       } else {
         setErrorMessage('Payout transaction was mined on Arc Mainnet but execution reverted onchain.');
         setStep('FAILED');
       }
     }
-  }, [isPayoutWritePending, isPayoutMining, isPayoutSuccess, payoutReceipt, payoutHash, onSuccess]);
+  }, [isPayoutWritePending, isPayoutMining, isPayoutSuccess, payoutReceipt, payoutHash]);
 
   const formatErrorMessage = (err: Error): string => {
     const msg = err.message || '';
@@ -249,8 +278,13 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
   const handleExecutePayout = () => {
     setErrorMessage(null);
 
-    const recipients = rows.map((r) => r.address.trim() as Address);
-    const amounts = rows.map((r) => parseUsdc(r.amount.trim()).baseUnits);
+    if (displayRows.length > MAX_BATCH_RECIPIENTS) {
+      setErrorMessage(`Cannot execute batch: ${displayRows.length} recipients exceeds the maximum allowed limit of ${MAX_BATCH_RECIPIENTS}.`);
+      return;
+    }
+
+    const recipients = displayRows.map((r) => r.address.trim() as Address);
+    const amounts = displayRows.map((r) => parseUsdc(r.amount.trim()).baseUnits);
 
     // Deterministic batch ID and memo commitment
     const timestamp = BigInt(Math.floor(Date.now() / 1000));
@@ -259,7 +293,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
       encodePacked(['address', 'uint256', 'uint256'], [address as Address, timestamp, randomNonce])
     );
 
-    const memoConcatenation = rows.map((r) => r.memo || '').join('|');
+    const memoConcatenation = displayRows.map((r) => r.memo || '').join('|');
     const referenceCommitment = keccak256(encodePacked(['string'], [memoConcatenation]));
 
     writePayout({
@@ -302,7 +336,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                 <span className="font-bold text-sm">Batch Settlement Confirmed!</span>
               </div>
               <p className="text-xs text-emerald-800">
-                All {rows.length} recipient payments have been atomically settled on Arc Mainnet.
+                All {displayRows.length} recipient payments have been atomically settled on Arc Mainnet.
               </p>
               {payoutTxHash && (
                 <div className="pt-2 flex flex-wrap gap-2">
@@ -326,6 +360,18 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
               <div className="overflow-hidden">
                 <span className="font-semibold block">Execution Alert:</span>
                 <p className="text-[11px] break-words mt-0.5">{errorMessage}</p>
+              </div>
+            </div>
+          )}
+
+          {isBatchSizeExceeded && (
+            <div className="p-3.5 rounded bg-red-50 border border-red-200 text-red-900 flex items-start space-x-2">
+              <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="font-semibold block">Maximum Batch Size Exceeded</span>
+                <p className="text-[11px] text-red-800 mt-0.5">
+                  This batch contains {displayRows.length} recipients. The BatchPayout contract enforces a maximum limit of {MAX_BATCH_RECIPIENTS} recipients. Please reduce your recipient list before signing.
+                </p>
               </div>
             </div>
           )}
@@ -400,6 +446,9 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                 Est. Gas Fee
               </span>
               <span className="font-mono text-slate-700 tabular-nums">~{estimatedGasUsdc} USDC</span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                {isRpcGasSimulated ? '✓ RPC Simulated' : 'Heuristic Baseline'}
+              </span>
             </div>
             <div>
               <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">
@@ -440,9 +489,9 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
 
           {/* Recipient Itemized Breakdown */}
           <div>
-            <span className="text-xs font-bold text-slate-900 block mb-2">Itemized Payments ({rows.length})</span>
+            <span className="text-xs font-bold text-slate-900 block mb-2">Itemized Payments ({displayRows.length})</span>
             <div className="border border-slate-200 rounded max-h-48 overflow-y-auto divide-y divide-slate-100">
-              {rows.map((r, i) => (
+              {displayRows.map((r, i) => (
                 <div key={r.id} className="p-2.5 flex items-center justify-between text-[11px] hover:bg-slate-50">
                   <div className="flex items-center space-x-2">
                     <span className="font-mono text-slate-400 w-5">{i + 1}.</span>
@@ -502,7 +551,8 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                       step === 'AWAITING_APPROVAL' ||
                       step === 'APPROVAL_PENDING' ||
                       isWrongNetwork ||
-                      isInsufficientTotal
+                      isInsufficientTotal ||
+                      isBatchSizeExceeded
                     }
                     className="flex items-center space-x-1.5 min-h-[38px] px-3.5 py-2 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -539,7 +589,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                   <div>
                     <span className="font-semibold block">Execute Atomic Settlement</span>
                     <span className="text-[11px] text-slate-500">
-                      Transfers exact amounts to {rows.length} recipients atomically on Arc Mainnet.
+                      Transfers exact amounts to {displayRows.length} recipients atomically on Arc Mainnet.
                     </span>
                   </div>
                 </div>
@@ -555,7 +605,8 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                       step === 'AWAITING_PAYOUT' ||
                       step === 'PAYOUT_PENDING' ||
                       isWrongNetwork ||
-                      isInsufficientTotal
+                      isInsufficientTotal ||
+                      isBatchSizeExceeded
                     }
                     className="flex items-center space-x-1.5 min-h-[38px] px-4 py-2 rounded font-semibold text-xs bg-blue-700 text-white hover:bg-blue-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >

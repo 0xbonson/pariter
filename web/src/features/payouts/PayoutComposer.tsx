@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { useAccount, useReadContract, useBalance, useConnect } from 'wagmi';
 import { Plus, Trash2, AlertCircle, AlertTriangle, ArrowRight, Upload, Info, Wallet } from 'lucide-react';
 import {
@@ -7,9 +7,10 @@ import {
   sumAmounts,
   validateRecipientAddress,
 } from '../../lib/money/usdc';
-import { ARC_USDC_ERC20_ADDRESS, ARC_CHAIN_ID, IS_MAINNET_DEPLOYED } from '../../lib/contracts/addresses';
+import { ARC_USDC_ERC20_ADDRESS, ARC_CHAIN_ID, IS_MAINNET_DEPLOYED, MAX_BATCH_RECIPIENTS } from '../../lib/contracts/addresses';
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { BatchReviewModal } from './BatchReviewModal';
+import { parseRecipientText } from './batchParser';
 
 export interface RecipientRow {
   id: string;
@@ -31,6 +32,10 @@ export const PayoutComposer: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
+  const [walletConnectError, setWalletConnectError] = useState<string | null>(null);
+
+  // Track whether payout confirmed so we reset rows only upon dismissing the modal
+  const payoutCompletedRef = useRef(false);
 
   // Fetch payer ERC-20 USDC balance
   const { data: erc20BalanceRaw, refetch: refetchErc20 } = useReadContract({
@@ -101,9 +106,9 @@ export const PayoutComposer: React.FC = () => {
   }, [rowValidations]);
 
   const isFormValid = useMemo(() => {
-    if (activeRowCount === 0) return false;
+    if (activeRowCount === 0 || activeRowCount > MAX_BATCH_RECIPIENTS) return false;
     const activeValidations = rowValidations.filter((_, i) => !rowValidations[i].isEmpty);
-    if (activeValidations.length === 0) return false;
+    if (activeValidations.length === 0 || activeValidations.length > MAX_BATCH_RECIPIENTS) return false;
     return activeValidations.every((v) => v.addressValid && v.amountValid && v.baseUnits > 0n);
   }, [activeRowCount, rowValidations]);
 
@@ -117,6 +122,7 @@ export const PayoutComposer: React.FC = () => {
 
   // Actions
   const addRow = () => {
+    if (rows.length >= MAX_BATCH_RECIPIENTS) return;
     setRows((prev) => [
       ...prev,
       { id: Date.now().toString(), address: '', amount: '', memo: '' },
@@ -139,34 +145,33 @@ export const PayoutComposer: React.FC = () => {
 
   const handleImport = () => {
     setImportError(null);
-    const lines = importText.trim().split('\n');
-    const parsedRows: RecipientRow[] = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const parts = line.split(/[,\t]/).map((p) => p.trim());
-      if (parts.length < 2) {
-        setImportError(`Line ${i + 1} format invalid. Expected: address, amount, [memo]`);
-        return;
-      }
-      parsedRows.push({
-        id: (Date.now() + i).toString(),
-        address: parts[0],
-        amount: parts[1],
-        memo: parts[2] || '',
-      });
-    }
-
-    if (parsedRows.length === 0) {
-      setImportError('No valid payment entries found.');
+    const result = parseRecipientText(importText, MAX_BATCH_RECIPIENTS);
+    if (result.error) {
+      setImportError(result.error);
       return;
     }
 
-    setRows(parsedRows);
+    setRows(result.rows);
     setShowImportModal(false);
     setImportText('');
   };
+
+  const handlePayoutSuccess = useCallback(() => {
+    payoutCompletedRef.current = true;
+    refetchErc20();
+  }, [refetchErc20]);
+
+  const handleCloseReviewModal = useCallback(() => {
+    setShowReviewModal(false);
+    // If the batch was confirmed onchain, reset to clean state now that user has closed review
+    if (payoutCompletedRef.current) {
+      payoutCompletedRef.current = false;
+      setRows([
+        { id: '1', address: '', amount: '', memo: '' },
+        { id: '2', address: '', amount: '', memo: '' },
+      ]);
+    }
+  }, []);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -222,6 +227,9 @@ export const PayoutComposer: React.FC = () => {
               <span className="text-sm font-semibold font-mono text-slate-700 tabular-nums">
                 ~0.0050 USDC
               </span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">
+                Baseline Buffer
+              </span>
             </div>
             {totalBaseUnits > 0n && (
               <div className="border-l border-slate-200 pl-6">
@@ -245,6 +253,19 @@ export const PayoutComposer: React.FC = () => {
             <span>
               Arc uses a single unified USDC balance for both batch transfers (6 decimals) and gas fees (18 decimals).
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* Batch size warning banner */}
+      {activeRowCount > MAX_BATCH_RECIPIENTS && (
+        <div className="mb-4 p-3.5 rounded bg-red-50 border border-red-200 flex items-start space-x-2 text-xs text-red-900">
+          <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="font-semibold block">Maximum Batch Size Exceeded</strong>
+            <p className="text-[11px] text-red-800 mt-0.5">
+              Current batch has {activeRowCount} recipients. The BatchPayout contract limit is {MAX_BATCH_RECIPIENTS}. Please remove {activeRowCount - MAX_BATCH_RECIPIENTS} recipient{activeRowCount - MAX_BATCH_RECIPIENTS > 1 ? 's' : ''} to proceed.
+            </p>
           </div>
         </div>
       )}
@@ -351,14 +372,19 @@ export const PayoutComposer: React.FC = () => {
         <div className="p-3 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
           <button
             onClick={addRow}
+            disabled={rows.length >= MAX_BATCH_RECIPIENTS}
             aria-label="Add new recipient"
-            className="flex items-center space-x-1.5 min-h-[40px] px-3.5 py-2 text-xs font-semibold rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm focus-visible:ring-1 focus-visible:ring-slate-900"
+            className="flex items-center space-x-1.5 min-h-[40px] px-3.5 py-2 text-xs font-semibold rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm focus-visible:ring-1 focus-visible:ring-slate-900 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Recipient</span>
           </button>
-          <span className="text-xs text-slate-500">
-            {activeRowCount} of 250 max recipients
+          <span
+            className={`text-xs ${
+              activeRowCount > MAX_BATCH_RECIPIENTS ? 'text-red-600 font-semibold' : 'text-slate-500'
+            }`}
+          >
+            {activeRowCount} of {MAX_BATCH_RECIPIENTS} max recipients
           </span>
         </div>
       </div>
@@ -389,13 +415,38 @@ export const PayoutComposer: React.FC = () => {
 
         <div className="flex items-center space-x-4">
           {!isConnected ? (
-            <button
-              onClick={() => connect({ connector: connectors[0] })}
-              className="flex items-center space-x-2 px-5 py-2.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900"
-            >
-              <Wallet className="w-4 h-4" />
-              <span>Connect Wallet to Review</span>
-            </button>
+            <div className="flex flex-col items-end">
+              <button
+                onClick={() => {
+                  setWalletConnectError(null);
+                  if (!connectors || connectors.length === 0 || !connectors[0]) {
+                    setWalletConnectError('No Web3 wallet detected. Please install MetaMask, Rabby, or an Arc-compatible browser wallet extension.');
+                    return;
+                  }
+                  connect(
+                    { connector: connectors[0] },
+                    {
+                      onError: (err) => {
+                        if (err.message.includes('User rejected') || err.message.includes('rejected')) {
+                          setWalletConnectError('Wallet connection rejected by user.');
+                        } else {
+                          setWalletConnectError(err.message || 'Failed to connect wallet.');
+                        }
+                      },
+                    }
+                  );
+                }}
+                className="flex items-center space-x-2 px-5 py-2.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900"
+              >
+                <Wallet className="w-4 h-4" />
+                <span>Connect Wallet to Review</span>
+              </button>
+              {walletConnectError && (
+                <p className="text-[11px] text-red-600 mt-1.5 max-w-xs text-right font-medium">
+                  {walletConnectError}
+                </p>
+              )}
+            </div>
           ) : (
             <button
               onClick={() => setShowReviewModal(true)}
@@ -413,16 +464,10 @@ export const PayoutComposer: React.FC = () => {
       {showReviewModal && (
         <BatchReviewModal
           isOpen={showReviewModal}
-          onClose={() => setShowReviewModal(false)}
+          onClose={handleCloseReviewModal}
           rows={rows.filter((_, i) => !rowValidations[i].isEmpty)}
           totalBaseUnits={totalBaseUnits}
-          onSuccess={() => {
-            refetchErc20();
-            setRows([
-              { id: '1', address: '', amount: '', memo: '' },
-              { id: '2', address: '', amount: '', memo: '' },
-            ]);
-          }}
+          onSuccess={handlePayoutSuccess}
         />
       )}
 
