@@ -1,5 +1,5 @@
 import { ExternalLink, ShieldCheck, Terminal, Layers } from 'lucide-react';
-import { ARC_CHAIN_ID, ARC_USDC_ERC20_ADDRESS, BATCH_PAYOUT_ADDRESS } from '../../lib/contracts/addresses';
+import { ARC_CHAIN_ID, ARC_USDC_ERC20_ADDRESS, BATCH_PAYOUT_ADDRESS, IS_MAINNET_DEPLOYED } from '../../lib/contracts/addresses';
 
 export const DocumentationView: React.FC = () => {
   return (
@@ -37,16 +37,27 @@ export const DocumentationView: React.FC = () => {
           <div className="p-3 bg-slate-50 border border-slate-200 rounded md:col-span-2">
             <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">BatchPayout Contract Address</span>
             <div className="flex items-center justify-between mt-0.5">
-              <code className="font-mono text-slate-900 text-[11px]">{BATCH_PAYOUT_ADDRESS}</code>
-              <a
-                href={`https://explorer.arc.io/address/${BATCH_PAYOUT_ADDRESS}`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-700 hover:text-blue-900 inline-flex items-center space-x-1 font-semibold"
-              >
-                <span>View on Explorer</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+              {IS_MAINNET_DEPLOYED ? (
+                <>
+                  <code className="font-mono text-slate-900 text-[11px]">{BATCH_PAYOUT_ADDRESS}</code>
+                  <a
+                    href={`https://explorer.arc.io/address/${BATCH_PAYOUT_ADDRESS}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-700 hover:text-blue-900 inline-flex items-center space-x-1 font-semibold"
+                  >
+                    <span>View on Explorer</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <span className="px-2 py-0.5 text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded">
+                    Pending Mainnet Deployment
+                  </span>
+                  <span className="text-slate-400 text-[11px]">(Contract not yet deployed to Arc Mainnet)</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
