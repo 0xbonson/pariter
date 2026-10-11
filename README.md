@@ -24,8 +24,8 @@ Distributed developer collectives, open-source communities, and hackathon organi
 
 Arc is a Layer-1 blockchain built by Circle where **USDC is the native gas asset**:
 - **Zero Token Wrapping:** Native USDC powers network gas while standard smart contracts interact with the canonical ERC-20 precompile at `0x3600000000000000000000000000000000000000`.
-- **Low, Predictable Fees:** Sub-cent transaction execution ($< \$0.005$ per batch) settled directly in USDC.
-- **Fast Block Times:** Sub-second settlement finality.
+- **Direct USDC Settlement:** Transaction fees are denominated and paid directly in native USDC without needing a secondary volatile gas token. Actual costs vary with batch size and network base fees.
+- **Fast Execution:** Fast transaction inclusion on Arc Mainnet without cross-chain bridge overhead.
 
 ---
 
@@ -42,7 +42,7 @@ Arc is a Layer-1 blockchain built by Circle where **USDC is the native gas asset
 │       BatchPayout.sol         │ │   Arc JSON-RPC       │
 │ - Exact-pull safeTransferFrom │ │   (Chain ID 5042)    │
 │ - Atomic distribution loop    │ └──────────────────────┘
-│ - Invariant: Zero retention   │
+│ - Invariant: Balance conserved│
 │ - Payer-scoped replay lock    │
 └───────────┬───────────────────┘
             │
@@ -62,7 +62,7 @@ Arc is a Layer-1 blockchain built by Circle where **USDC is the native gas asset
    - ERC-20 transfer units: 6 decimals ($10^{-6}$ USDC).
    - Zero floating-point arithmetic in client or contract code; all calculations use integer `bigint`.
 2. **Atomicity Guarantee:** All transfers in a batch must succeed, or the entire transaction reverts.
-3. **Zero-Custody Invariant:** The contract holds 0 USDC before and after every execution. Invariant testing verified `balanceOf(contract) == 0` across 128,000 randomized state transitions.
+3. **Net Balance Conservation & Non-Custody:** The contract retains zero net USDC from any batch execution. It verifies `balanceAfter == balanceBefore`, guaranteeing that all pulled payer tokens are fully distributed to recipients without griefing vulnerability to direct transfers. Stateful property-based invariant fuzzing across 128,000 handler calls confirmed that batch execution never mutates net contract balances.
 4. **Payer-Scoped Replay Protection:** Each batch is indexed by `bytes32 batchId` scoped directly to `msg.sender`.
 
 ---
@@ -138,7 +138,7 @@ npm run build
 
 ## 7. Arc Mainnet Deployment & Verification
 
-See [docs/deployment/MAINNET.md](docs/deployment/MAINNET.md) for full deployment instructions and gas estimations.
+See [docs/deployment/MAINNET.md](docs/deployment/MAINNET.md) for full deployment instructions and gas estimations. For third-party or DevRel deployment procedures, see the [Sponsor Deployment Guide](docs/deployment/SPONSOR_DEPLOYMENT.md).
 
 ```bash
 cd contracts
@@ -154,5 +154,5 @@ forge script script/DeployBatchPayout.s.sol:DeployBatchPayout \
 
 - **Onchain Settlement Only:** Pariter validates token movements on Arc Mainnet. It does not certify contractor identity, work completion, or offchain legal invoice validity.
 - **Batch Ceiling:** Capped at 250 recipients per batch to stay well below the 30M EVM block gas limit.
-- **Audit Disclaimer:** Pariter has been self-audited with extensive fuzz and invariant testing, but has not undergone a formal third-party audit by an external firm.
+- **Testing & Audit Status:** Pariter has undergone developer verification via 19 Foundry unit/fuzz tests and 128,000 stateful invariant fuzz iterations. This empirical property testing does not constitute a formal mathematical proof, and the codebase has not undergone a formal third-party security audit.
 - **Provisional Brand:** The name *Pariter* is provisional and pending formal trademark clearance.
