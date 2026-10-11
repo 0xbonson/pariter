@@ -101,6 +101,10 @@ describe('Settlement Verification Engine — Cryptographic Integrity & Adversari
     expect(result.totalTransferred).toBe(totalAmount);
     expect(result.tokenTransfersMatched).toBe(3); // 1 inbound + 2 outbound
     expect(result.items.length).toBe(2);
+    expect(result.items[0].payer.toLowerCase()).toBe(PAYER.toLowerCase());
+    expect(result.items[0].batchId.toLowerCase()).toBe(BATCH_ID.toLowerCase());
+    expect(result.items[1].payer.toLowerCase()).toBe(PAYER.toLowerCase());
+    expect(result.items[1].batchId.toLowerCase()).toBe(BATCH_ID.toLowerCase());
   });
 
   it('ADVERSARIAL: Rejects spoofed events emitted by a malicious unrelated contract', () => {
@@ -286,5 +290,67 @@ describe('Settlement Verification Engine — Cryptographic Integrity & Adversari
 
     expect(result.status).toBe('UNSUPPORTED');
     expect(result.verificationMessage).toContain('has no runtime bytecode on Arc Mainnet');
+  });
+
+  it('ADVERSARIAL: Rejects settlement when PayoutExecuted has mismatched payer despite valid token transfers', () => {
+    const totalAmount = 1_000_000n; // 1.00 USDC
+    const impostorPayer = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' as `0x${string}`;
+
+    const logs = [
+      buildErc20TransferLog(CANONICAL_USDC, PAYER, VERIFIED_CONTRACT, totalAmount),
+      buildErc20TransferLog(CANONICAL_USDC, VERIFIED_CONTRACT, RECIP1, totalAmount),
+      // PayoutExecuted log emits impostor payer instead of declared batch payer
+      buildPayoutExecutedLog(VERIFIED_CONTRACT, impostorPayer, BATCH_ID, RECIP1, totalAmount, 0n),
+      buildBatchSettledLog(VERIFIED_CONTRACT, PAYER, BATCH_ID, 1n, totalAmount),
+    ];
+
+    const result = verifySettlementTransaction({
+      txHash: '0xmismatchedpayer00000000000000000000000000000000000000000000000000',
+      tx: { chainId: 5042 } as Transaction,
+      receipt: {
+        status: 'success',
+        blockNumber: 1009n,
+        gasUsed: 90000n,
+        logs,
+      } as unknown as TransactionReceipt,
+      configuredContractAddress: VERIFIED_CONTRACT,
+      canonicalUsdcAddress: CANONICAL_USDC,
+      hasContractCode: true,
+    });
+
+    expect(result.status).toBe('EVIDENCE_MISMATCH');
+    expect(result.verificationMessage).toContain('Payer mismatch in payout event');
+    expect(result.verificationMessage.toLowerCase()).toContain(impostorPayer.toLowerCase());
+  });
+
+  it('ADVERSARIAL: Rejects settlement when PayoutExecuted has mismatched batchId despite valid token transfers', () => {
+    const totalAmount = 1_000_000n; // 1.00 USDC
+    const impostorBatchId = '0x9999999999999999999999999999999999999999999999999999999999999999' as `0x${string}`;
+
+    const logs = [
+      buildErc20TransferLog(CANONICAL_USDC, PAYER, VERIFIED_CONTRACT, totalAmount),
+      buildErc20TransferLog(CANONICAL_USDC, VERIFIED_CONTRACT, RECIP1, totalAmount),
+      // PayoutExecuted log emits impostor batchId instead of declared BatchSettled batchId
+      buildPayoutExecutedLog(VERIFIED_CONTRACT, PAYER, impostorBatchId, RECIP1, totalAmount, 0n),
+      buildBatchSettledLog(VERIFIED_CONTRACT, PAYER, BATCH_ID, 1n, totalAmount),
+    ];
+
+    const result = verifySettlementTransaction({
+      txHash: '0xmismatchedbatchid0000000000000000000000000000000000000000000000000',
+      tx: { chainId: 5042 } as Transaction,
+      receipt: {
+        status: 'success',
+        blockNumber: 1010n,
+        gasUsed: 90000n,
+        logs,
+      } as unknown as TransactionReceipt,
+      configuredContractAddress: VERIFIED_CONTRACT,
+      canonicalUsdcAddress: CANONICAL_USDC,
+      hasContractCode: true,
+    });
+
+    expect(result.status).toBe('EVIDENCE_MISMATCH');
+    expect(result.verificationMessage).toContain('Batch ID mismatch in payout event');
+    expect(result.verificationMessage).toContain(impostorBatchId);
   });
 });

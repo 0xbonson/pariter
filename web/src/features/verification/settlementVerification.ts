@@ -4,6 +4,8 @@ import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { formatUsdc } from '../../lib/money/usdc';
 
 export interface PayoutItem {
+  payer: string;
+  batchId: string;
   recipient: string;
   amount: bigint;
   index: number;
@@ -167,6 +169,8 @@ export function verifySettlementTransaction(params: VerificationParams): Verific
           };
         } else if (decoded.eventName === 'PayoutExecuted') {
           payoutEvents.push({
+            payer: (decoded.args as any).payer,
+            batchId: (decoded.args as any).batchId,
             recipient: (decoded.args as any).recipient,
             amount: (decoded.args as any).amount,
             index: Number((decoded.args as any).index),
@@ -248,7 +252,38 @@ export function verifySettlementTransaction(params: VerificationParams): Verific
     }
   }
 
-  // 7. Verify sum of payout amounts matches BatchSettled totalTransferred
+  // 7. Verify consistent payer and batchId across every PayoutExecuted event
+  for (const payout of payoutEvents) {
+    if (payout.payer.toLowerCase() !== batchSettledEvent.payer.toLowerCase()) {
+      return {
+        status: 'EVIDENCE_MISMATCH',
+        txHash,
+        blockNumber: receipt.blockNumber,
+        contractAddress: targetContract,
+        payer: batchSettledEvent.payer,
+        batchId: batchSettledEvent.batchId,
+        items: payoutEvents,
+        tokenTransfersMatched: erc20Transfers.length,
+        verificationMessage: `Payer mismatch in payout event: BatchSettled payer (${batchSettledEvent.payer}) does not match PayoutExecuted payer (${payout.payer}) at index ${payout.index}.`,
+      };
+    }
+
+    if (payout.batchId.toLowerCase() !== batchSettledEvent.batchId.toLowerCase()) {
+      return {
+        status: 'EVIDENCE_MISMATCH',
+        txHash,
+        blockNumber: receipt.blockNumber,
+        contractAddress: targetContract,
+        payer: batchSettledEvent.payer,
+        batchId: batchSettledEvent.batchId,
+        items: payoutEvents,
+        tokenTransfersMatched: erc20Transfers.length,
+        verificationMessage: `Batch ID mismatch in payout event: BatchSettled batchId (${batchSettledEvent.batchId}) does not match PayoutExecuted batchId (${payout.batchId}) at index ${payout.index}.`,
+      };
+    }
+  }
+
+  // 8. Verify sum of payout amounts matches BatchSettled totalTransferred
   const sumAmounts = payoutEvents.reduce((acc, p) => acc + p.amount, 0n);
   if (sumAmounts !== batchSettledEvent.totalTransferred) {
     return {
@@ -264,7 +299,7 @@ export function verifySettlementTransaction(params: VerificationParams): Verific
     };
   }
 
-  // 8. Reconcile canonical USDC ERC-20 transfers
+  // 9. Reconcile canonical USDC ERC-20 transfers
   // Must have inbound transfer from payer to BatchPayout contract
   const payerAddr = batchSettledEvent.payer.toLowerCase();
   const inboundTransfer = erc20Transfers.find(
@@ -315,7 +350,7 @@ export function verifySettlementTransaction(params: VerificationParams): Verific
     matchedOutboundCount++;
   }
 
-  // 9. Fee and timestamp calculations
+  // 10. Fee and timestamp calculations
   const effectiveGasPrice = receipt.effectiveGasPrice ?? 0n;
   const gasFeeWei = receipt.gasUsed * effectiveGasPrice;
   const feeUsdc = Number(gasFeeWei) / 1e18;

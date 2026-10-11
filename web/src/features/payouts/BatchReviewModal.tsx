@@ -55,7 +55,8 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
 
   const [step, setStep] = useState<TxStep>('REVIEW');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [estimatedGasUsdc, setEstimatedGasUsdc] = useState<string>('0.003');
+  const [estimatedGasWei, setEstimatedGasWei] = useState<bigint>(5_000_000_000_000_000n);
+  const [estimatedGasUsdc, setEstimatedGasUsdc] = useState<string>('0.0050');
   const [payoutTxHash, setPayoutTxHash] = useState<`0x${string}` | null>(null);
 
   // Check current native USDC gas balance (18 decimals)
@@ -74,9 +75,18 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
   });
 
   const payerErc20Balance = erc20BalanceRaw ?? 0n;
-  const payerNativeBalance = nativeBalanceData?.value ?? 0n;
-  const insufficientErc20 = payerErc20Balance < totalBaseUnits;
-  const insufficientNativeGas = payerNativeBalance < 5_000_000_000_000_000n; // < 0.005 native USDC
+  const payerNativeUnits = nativeBalanceData ? nativeBalanceData.value / 10n ** 12n : 0n;
+  // Unified USDC balance: on Arc, native (18-dec) and ERC-20 (6-dec) reflect the same account balance
+  const payerUsdcBalance = payerErc20Balance > 0n ? payerErc20Balance : payerNativeUnits;
+
+  // Convert estimated gas wei to 6-decimal base units (ceiling)
+  const estimatedGasBaseUnits = (estimatedGasWei + 10n ** 12n - 1n) / 10n ** 12n;
+  const safeGasReserveBaseUnits = estimatedGasBaseUnits > 5_000n ? estimatedGasBaseUnits : 5_000n;
+  const totalRequiredBaseUnits = totalBaseUnits + safeGasReserveBaseUnits;
+
+  const isInsufficientForPayout = payerUsdcBalance < totalBaseUnits;
+  const isInsufficientForGas = !isInsufficientForPayout && payerUsdcBalance < totalRequiredBaseUnits;
+  const isInsufficientTotal = isInsufficientForPayout || isInsufficientForGas;
 
   // Check current allowance for BatchPayout contract
   const { data: currentAllowanceRaw, refetch: refetchAllowance } = useReadContract({
@@ -154,10 +164,12 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
         }
 
         const gasWei = estimatedUnits * gasPrice;
+        setEstimatedGasWei(gasWei > 3_000_000_000_000_000n ? gasWei : 5_000_000_000_000_000n);
         const usdcGas = Number(gasWei) / 1e18;
         setEstimatedGasUsdc(usdcGas > 0.000001 ? usdcGas.toFixed(6) : '< 0.000001');
       } catch {
-        setEstimatedGasUsdc('~0.0030');
+        setEstimatedGasWei(5_000_000_000_000_000n);
+        setEstimatedGasUsdc('~0.0050');
       }
     }
     estimate();
@@ -341,25 +353,25 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
             </div>
           )}
 
-          {insufficientErc20 && (
+          {isInsufficientForPayout && (
             <div className="p-3.5 rounded bg-red-50 border border-red-200 text-red-900 flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
               <div>
-                <span className="font-semibold block">Insufficient USDC Token Balance</span>
+                <span className="font-semibold block">Insufficient USDC Balance</span>
                 <p className="text-[11px] text-red-800 mt-0.5">
-                  Wallet has {formatUsdc(payerErc20Balance)} USDC ERC-20. Total batch required is {formatUsdc(totalBaseUnits)} USDC.
+                  Wallet has {formatUsdc(payerUsdcBalance)} USDC. Total batch disbursement requires {formatUsdc(totalBaseUnits)} USDC.
                 </p>
               </div>
             </div>
           )}
 
-          {!insufficientErc20 && insufficientNativeGas && (
+          {isInsufficientForGas && (
             <div className="p-3.5 rounded bg-amber-50 border border-amber-200 text-amber-900 flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
               <div>
-                <span className="font-semibold block">Low Native Gas Balance</span>
+                <span className="font-semibold block">Insufficient USDC for Transaction Fees</span>
                 <p className="text-[11px] text-amber-800 mt-0.5">
-                  Arc gas fees are paid in native USDC (18 decimals). Your wallet has &lt; 0.005 native USDC, which may be insufficient to cover gas fees.
+                  Wallet has {formatUsdc(payerUsdcBalance)} USDC. Disbursing {formatUsdc(totalBaseUnits)} USDC leaves less than ~{estimatedGasUsdc} USDC to cover Arc execution gas fees. On Arc, batch payouts and network gas fees are paid from the same unified USDC balance.
                 </p>
               </div>
             </div>
@@ -369,15 +381,11 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-slate-50 rounded border border-slate-200">
             <div>
               <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">
-                Network
+                Available Balance
               </span>
-              <span className="font-semibold text-slate-900">Arc Mainnet (5042)</span>
-            </div>
-            <div>
-              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">
-                Recipients
+              <span className="font-semibold font-mono text-slate-900 tabular-nums">
+                {formatUsdc(payerUsdcBalance)} USDC
               </span>
-              <span className="font-semibold text-slate-900">{rows.length} wallets</span>
             </div>
             <div>
               <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">
@@ -391,7 +399,21 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
               <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">
                 Est. Gas Fee
               </span>
-              <span className="font-mono text-slate-700">~{estimatedGasUsdc} USDC</span>
+              <span className="font-mono text-slate-700 tabular-nums">~{estimatedGasUsdc} USDC</span>
+            </div>
+            <div>
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold block">
+                Remaining Balance
+              </span>
+              <span
+                className={`font-mono font-semibold tabular-nums ${
+                  !isInsufficientTotal ? 'text-emerald-700' : 'text-red-600'
+                }`}
+              >
+                {!isInsufficientTotal
+                  ? `${formatUsdc(payerUsdcBalance - totalRequiredBaseUnits)} USDC`
+                  : 'Insufficient'}
+              </span>
             </div>
           </div>
 
@@ -480,7 +502,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                       step === 'AWAITING_APPROVAL' ||
                       step === 'APPROVAL_PENDING' ||
                       isWrongNetwork ||
-                      insufficientErc20
+                      isInsufficientTotal
                     }
                     className="flex items-center space-x-1.5 min-h-[38px] px-3.5 py-2 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -533,7 +555,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                       step === 'AWAITING_PAYOUT' ||
                       step === 'PAYOUT_PENDING' ||
                       isWrongNetwork ||
-                      insufficientErc20
+                      isInsufficientTotal
                     }
                     className="flex items-center space-x-1.5 min-h-[38px] px-4 py-2 rounded font-semibold text-xs bg-blue-700 text-white hover:bg-blue-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >

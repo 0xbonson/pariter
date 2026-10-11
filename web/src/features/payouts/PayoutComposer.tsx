@@ -4,7 +4,6 @@ import { Plus, Trash2, AlertCircle, AlertTriangle, ArrowRight, Upload, Info, Wal
 import {
   parseUsdc,
   formatUsdc,
-  formatNativeGas,
   sumAmounts,
   validateRecipientAddress,
 } from '../../lib/money/usdc';
@@ -53,7 +52,9 @@ export const PayoutComposer: React.FC = () => {
   });
 
   const payerErc20Balance = erc20BalanceRaw ?? 0n;
-  const payerNativeBalance = nativeBalanceData?.value ?? 0n;
+  const payerNativeUnits = nativeBalanceData ? nativeBalanceData.value / 10n ** 12n : 0n;
+  // Unified USDC balance: on Arc, native gas (18-dec) and ERC-20 (6-dec) reflect the same account balance
+  const payerUsdcBalance = payerErc20Balance > 0n ? payerErc20Balance : payerNativeUnits;
 
   // Row validation results
   const rowValidations = useMemo(() => {
@@ -106,7 +107,13 @@ export const PayoutComposer: React.FC = () => {
     return activeValidations.every((v) => v.addressValid && v.amountValid && v.baseUnits > 0n);
   }, [activeRowCount, rowValidations]);
 
-  const hasSufficientErc20 = !isConnected || payerErc20Balance >= totalBaseUnits;
+  // Fee reserve: reserve at least 0.005 USDC (5,000 base units) for Arc transaction gas fees
+  const estimatedGasReserveBaseUnits = 5_000n;
+  const totalRequiredWithGas = totalBaseUnits + estimatedGasReserveBaseUnits;
+
+  const hasSufficientForPayout = !isConnected || totalBaseUnits === 0n || payerUsdcBalance >= totalBaseUnits;
+  const hasSufficientGasReserve = !isConnected || totalBaseUnits === 0n || payerUsdcBalance >= totalRequiredWithGas;
+  const hasSufficientBalance = hasSufficientForPayout && hasSufficientGasReserve;
 
   // Actions
   const addRow = () => {
@@ -196,30 +203,48 @@ export const PayoutComposer: React.FC = () => {
         </div>
       )}
 
-      {/* Balance Bar & Gas Advisory */}
+      {/* Unified USDC Balance & Gas Fee Advisory */}
       {isConnected && (
         <div className="mb-6 p-4 rounded bg-white border border-[#E4E7EC] flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs">
           <div className="flex flex-wrap items-center gap-6">
             <div>
               <span className="text-slate-500 uppercase tracking-wider text-[11px] font-semibold block">
-                USDC Token Balance
+                Available USDC Balance
               </span>
               <span className="text-sm font-bold font-mono text-slate-900 tabular-nums">
-                {formatUsdc(payerErc20Balance)} USDC
+                {formatUsdc(payerUsdcBalance)} USDC
               </span>
             </div>
             <div className="border-l border-slate-200 pl-6">
               <span className="text-slate-500 uppercase tracking-wider text-[11px] font-semibold block">
-                Native Gas Reserve
+                Est. Gas Reserve
               </span>
-              <span className="text-sm font-bold font-mono text-slate-900 tabular-nums">
-                {formatNativeGas(payerNativeBalance)} USDC
+              <span className="text-sm font-semibold font-mono text-slate-700 tabular-nums">
+                ~0.0050 USDC
               </span>
             </div>
+            {totalBaseUnits > 0n && (
+              <div className="border-l border-slate-200 pl-6">
+                <span className="text-slate-500 uppercase tracking-wider text-[11px] font-semibold block">
+                  Remaining After Batch
+                </span>
+                <span
+                  className={`text-sm font-mono font-semibold tabular-nums ${
+                    hasSufficientGasReserve ? 'text-emerald-700' : 'text-red-600'
+                  }`}
+                >
+                  {payerUsdcBalance >= totalBaseUnits
+                    ? `${formatUsdc(payerUsdcBalance - totalBaseUnits)} USDC`
+                    : 'Insufficient'}
+                </span>
+              </div>
+            )}
           </div>
-          <div className="text-slate-500 text-[11px] flex items-center space-x-1">
-            <Info className="w-3.5 h-3.5 text-slate-400" />
-            <span>Arc uses native USDC for gas fees and 6-decimal USDC for token transfers.</span>
+          <div className="text-slate-500 text-[11px] flex items-center space-x-1 max-w-sm">
+            <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            <span>
+              Arc uses a single unified USDC balance for both batch transfers (6 decimals) and gas fees (18 decimals).
+            </span>
           </div>
         </div>
       )}
@@ -350,10 +375,14 @@ export const PayoutComposer: React.FC = () => {
             </span>
             <span className="text-sm font-semibold text-slate-500">USDC</span>
           </div>
-          {isConnected && !hasSufficientErc20 && totalBaseUnits > 0n && (
+          {isConnected && !hasSufficientBalance && totalBaseUnits > 0n && (
             <div className="flex items-center space-x-1.5 mt-1 text-xs text-red-600 font-medium">
-              <AlertCircle className="w-3.5 h-3.5" />
-              <span>Insufficient USDC balance ({formatUsdc(payerErc20Balance)} available).</span>
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>
+                {!hasSufficientForPayout
+                  ? `Insufficient USDC balance (${formatUsdc(payerUsdcBalance)} available, need ${formatUsdc(totalBaseUnits)} for payouts).`
+                  : `Insufficient USDC for gas: Batch leaves less than 0.0050 USDC to cover required Arc transaction fees.`}
+              </span>
             </div>
           )}
         </div>
@@ -370,7 +399,7 @@ export const PayoutComposer: React.FC = () => {
           ) : (
             <button
               onClick={() => setShowReviewModal(true)}
-              disabled={!isFormValid || !hasSufficientErc20}
+              disabled={!isFormValid || !hasSufficientBalance}
               className="flex items-center space-x-2 px-6 py-2.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-sm focus-visible:ring-2 focus-visible:ring-slate-900"
             >
               <span>Review Batch Payout</span>
