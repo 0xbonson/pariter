@@ -47,6 +47,8 @@ jobs:
           npm test
 
       - name: Build Web Application
+        env:
+          VITE_BATCH_PAYOUT_ADDRESS: ${{ vars.VITE_BATCH_PAYOUT_ADDRESS || secrets.VITE_BATCH_PAYOUT_ADDRESS || '' }}
         run: |
           cd web
           npm run build

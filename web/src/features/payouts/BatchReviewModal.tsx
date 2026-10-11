@@ -20,6 +20,7 @@ import {
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { batchPayoutAbi } from '../../lib/contracts/batchPayoutAbi';
 import { formatUsdc, parseUsdc } from '../../lib/money/usdc';
+import { formatWalletErrorMessage } from '../../lib/chain/walletErrors';
 import type { RecipientRow } from './PayoutComposer';
 
 interface BatchReviewModalProps {
@@ -74,9 +75,22 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
   const [estimatedGasWei, setEstimatedGasWei] = useState<bigint>(5_000_000_000_000_000n);
   const [estimatedGasUsdc, setEstimatedGasUsdc] = useState<string>('0.0050');
   const [isRpcGasSimulated, setIsRpcGasSimulated] = useState<boolean>(false);
+  const [approvalTxHash, setApprovalTxHash] = useState<`0x${string}` | null>(null);
   const [payoutTxHash, setPayoutTxHash] = useState<`0x${string}` | null>(null);
 
   const isBatchSizeExceeded = displayRows.length > MAX_BATCH_RECIPIENTS;
+
+  // Whether an active onchain or wallet transaction is in-flight
+  const isPendingOperation =
+    step === 'APPROVAL_PENDING' ||
+    step === 'PAYOUT_PENDING' ||
+    step === 'AWAITING_APPROVAL' ||
+    step === 'AWAITING_PAYOUT';
+
+  const handleModalClose = () => {
+    if (isPendingOperation) return;
+    onClose();
+  };
 
   // Check current native USDC gas balance (18 decimals)
   const { data: nativeBalanceData } = useBalance({
@@ -198,17 +212,31 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
     estimate();
   }, [publicClient, address, displayRows.length, currentAllowance, totalBaseUnits, isBatchSizeExceeded]);
 
-  // Synchronize approval state
+  // Synchronize approval state and preserve hash
+  useEffect(() => {
+    if (approvalHash) {
+      setApprovalTxHash(approvalHash);
+    }
+  }, [approvalHash]);
+
+  useEffect(() => {
+    if (payoutHash) {
+      setPayoutTxHash(payoutHash);
+    }
+  }, [payoutHash]);
+
+  // Synchronize approval step
   useEffect(() => {
     if (isApprovalWritePending) {
       setStep('AWAITING_APPROVAL');
     } else if (isApprovalMining) {
       setStep('APPROVAL_PENDING');
+      if (approvalHash) setApprovalTxHash(approvalHash);
     } else if (isApprovalSuccess) {
       refetchAllowance();
       setStep('APPROVED');
     }
-  }, [isApprovalWritePending, isApprovalMining, isApprovalSuccess, refetchAllowance]);
+  }, [isApprovalWritePending, isApprovalMining, isApprovalSuccess, approvalHash, refetchAllowance]);
 
   // Synchronize payout state with strict onchain receipt verification
   useEffect(() => {
@@ -236,17 +264,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
   }, [isPayoutWritePending, isPayoutMining, isPayoutSuccess, payoutReceipt, payoutHash]);
 
   const formatErrorMessage = (err: Error): string => {
-    const msg = err.message || '';
-    if (msg.includes('User rejected') || msg.includes('user rejected') || msg.includes('User denied')) {
-      return 'Transaction request was cancelled by the user in the wallet.';
-    }
-    if (msg.includes('insufficient funds') || msg.includes('exceeds balance')) {
-      return 'Insufficient USDC funds for transfer amount or native gas fees.';
-    }
-    if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout') || msg.includes('failed to fetch')) {
-      return 'Network connection to Arc RPC timed out or was interrupted. Please check network connectivity.';
-    }
-    return msg.length > 200 ? `${msg.slice(0, 200)}...` : msg;
+    return formatWalletErrorMessage(err);
   };
 
   // Handle errors
@@ -318,9 +336,10 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
             </p>
           </div>
           <button
-            onClick={onClose}
-            disabled={step === 'APPROVAL_PENDING' || step === 'PAYOUT_PENDING'}
-            className="p-1 text-slate-400 hover:text-slate-600 rounded disabled:opacity-30"
+            onClick={handleModalClose}
+            disabled={isPendingOperation}
+            aria-label="Close modal"
+            className="p-1 text-slate-400 hover:text-slate-600 rounded disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <X className="w-5 h-5" />
           </button>
@@ -329,6 +348,56 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
         {/* Scrollable Content */}
         <div className="p-6 overflow-y-auto space-y-6 text-xs">
           {/* Status Alert if in progress or confirmed */}
+          {step === 'APPROVAL_PENDING' && (
+            <div className="p-4 rounded bg-blue-50 border border-blue-200 text-blue-900 space-y-2">
+              <div className="flex items-center space-x-2">
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+                <span className="font-bold text-sm">USDC Approval Transaction Pending</span>
+              </div>
+              <p className="text-xs text-blue-800">
+                Waiting for the approval transaction to be included in a block on Arc Mainnet. Transaction monitoring is active. Do not close this modal or resubmit.
+              </p>
+              {approvalTxHash && (
+                <div className="pt-1 flex flex-wrap gap-2">
+                  <a
+                    href={`https://explorer.arc.io/tx/${approvalTxHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded bg-white border border-blue-300 text-blue-800 hover:bg-blue-100 font-mono text-[11px]"
+                  >
+                    <span>View Approval on Arc Explorer</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 'PAYOUT_PENDING' && (
+            <div className="p-4 rounded bg-blue-50 border border-blue-200 text-blue-900 space-y-2">
+              <div className="flex items-center space-x-2">
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+                <span className="font-bold text-sm">Atomic Settlement Transaction Pending</span>
+              </div>
+              <p className="text-xs text-blue-800">
+                Disbursing payouts to {displayRows.length} recipients on Arc Mainnet. Transaction monitoring is active. Do not close this window or resubmit an uncertain transaction.
+              </p>
+              {payoutTxHash && (
+                <div className="pt-1 flex flex-wrap gap-2">
+                  <a
+                    href={`https://explorer.arc.io/tx/${payoutTxHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded bg-white border border-blue-300 text-blue-800 hover:bg-blue-100 font-mono text-[11px]"
+                  >
+                    <span>View Payout on Arc Explorer</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           {step === 'CONFIRMED' && (
             <div className="p-4 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 space-y-2">
               <div className="flex items-center space-x-2">
@@ -634,10 +703,11 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
             Atomicity guaranteed: All transfers succeed or the transaction reverts.
           </span>
           <button
-            onClick={onClose}
-            className="px-4 py-1.5 font-semibold text-slate-700 hover:bg-slate-200 rounded transition-colors"
+            onClick={handleModalClose}
+            disabled={isPendingOperation}
+            className="px-4 py-1.5 font-semibold text-slate-700 hover:bg-slate-200 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {step === 'CONFIRMED' ? 'Done' : 'Cancel'}
+            {step === 'CONFIRMED' ? 'Done' : isPendingOperation ? 'Processing...' : 'Cancel'}
           </button>
         </div>
       </div>

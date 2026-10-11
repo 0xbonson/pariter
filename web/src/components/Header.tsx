@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAccount, useConnect, useDisconnect, useChainId, useSwitchChain } from 'wagmi';
 import { arcMainnet } from '../lib/chain/arcChain';
+import { formatWalletErrorMessage } from '../lib/chain/walletErrors';
 import { Wallet, LogOut, AlertTriangle, ExternalLink } from 'lucide-react';
 
 interface HeaderProps {
@@ -23,18 +24,14 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
   const handleConnect = () => {
     setWalletConnectError(null);
     if (!connectors || connectors.length === 0 || !connectors[0]) {
-      setWalletConnectError('No Web3 wallet extension found. Please install MetaMask or Rabby.');
+      setWalletConnectError('No Web3 browser wallet detected. Please install MetaMask, Rabby, or an Arc-compatible extension.');
       return;
     }
     connect(
       { connector: connectors[0] },
       {
         onError: (err) => {
-          if (err.message.includes('User rejected') || err.message.includes('rejected')) {
-            setWalletConnectError('Connection request rejected in wallet.');
-          } else {
-            setWalletConnectError(err.message || 'Failed to connect wallet.');
-          }
+          setWalletConnectError(formatWalletErrorMessage(err));
         },
       }
     );

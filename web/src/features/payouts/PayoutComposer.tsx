@@ -11,6 +11,7 @@ import { ARC_USDC_ERC20_ADDRESS, ARC_CHAIN_ID, IS_MAINNET_DEPLOYED, MAX_BATCH_RE
 import { erc20Abi } from '../../lib/contracts/erc20Abi';
 import { BatchReviewModal } from './BatchReviewModal';
 import { parseRecipientText } from './batchParser';
+import { formatWalletErrorMessage } from '../../lib/chain/walletErrors';
 
 export interface RecipientRow {
   id: string;
@@ -153,6 +154,13 @@ export const PayoutComposer: React.FC = () => {
 
     setRows(result.rows);
     setShowImportModal(false);
+    setImportError(null);
+    setImportText('');
+  };
+
+  const handleCloseImportModal = () => {
+    setShowImportModal(false);
+    setImportError(null);
     setImportText('');
   };
 
@@ -427,11 +435,7 @@ export const PayoutComposer: React.FC = () => {
                     { connector: connectors[0] },
                     {
                       onError: (err) => {
-                        if (err.message.includes('User rejected') || err.message.includes('rejected')) {
-                          setWalletConnectError('Wallet connection rejected by user.');
-                        } else {
-                          setWalletConnectError(err.message || 'Failed to connect wallet.');
-                        }
+                        setWalletConnectError(formatWalletErrorMessage(err));
                       },
                     }
                   );
@@ -491,7 +495,7 @@ export const PayoutComposer: React.FC = () => {
             )}
             <div className="flex justify-end space-x-2 mt-4">
               <button
-                onClick={() => setShowImportModal(false)}
+                onClick={handleCloseImportModal}
                 className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
               >
                 Cancel
