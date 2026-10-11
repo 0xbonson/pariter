@@ -59,15 +59,15 @@ Pariter delivers a dedicated, lightweight, 100% client-side settlement engine de
 
 ## 4. Competitive Differentiation
 
-| Capability | Pariter | payrail | Arctools | Request Finance |
+| Focus / Capability | Pariter | payrail | Arctools | Request Finance |
 | :--- | :--- | :--- | :--- | :--- |
-| **Open Source** | **100% Open Source (MIT)** | Proprietary | Proprietary | Proprietary |
-| **Protocol Fees** | **$0 (Zero cut)** | Free / Custom | Fixed service fee | Subscription SaaS |
-| **Custody / Backend** | **Non-custodial, No backend** | SaaS infrastructure | Non-custodial | SaaS cloud |
-| **Independent Proof Pack** | **Client-side JSON/CSV bundle** | CSV export | Basic explorer link | Accounting report |
-| **Bytecode Verification** | **Cryptographic runtime hash** | Unverified in UI | Unverified in UI | Offchain |
+| **System Architecture** | **100% Client-side (Zero Backend/DB)** | Hosted Web Platform / API | Web Tool | Hosted Enterprise Cloud |
+| **Protocol Platform Fee** | **$0 (Zero Platform Cut)** | Free / Custom tiers | Fixed service fee | Paid Subscription |
+| **Independent Proof Pack** | **Client-side JSON bundle & CSV audit** | CSV export | Basic explorer link | Invoicing & accounting reports |
+| **Runtime Bytecode Audit** | **Automatic hash check in verifier** | Standard explorer | Standard explorer | Offchain |
+| **Target Niche** | **Small teams, grants & hackathons** | DAOs & multi-token ops | General token transfers | Enterprise payroll & accounting |
 
-*Note: Pariter does not claim to have invented batch transfers or receipt verification. It provides an unbundled, open-source, fee-free utility focused exclusively on Arc USDC.*
+*Note: Pariter does not claim to have invented batch transfers or receipt verification. It provides an unbundled, open-source utility focused specifically on atomic Arc USDC settlement and client-side proof generation.*
 
 ---
 
