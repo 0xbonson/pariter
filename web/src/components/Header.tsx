@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, onTabChange }) => {
         {/* Brand & Wordmark */}
         <div className="flex items-center space-x-6">
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onTabChange('payout')}>
-            <img src="/logo.svg" alt="Pariter Logo" className="w-8 h-8 rounded" />
+            <img src={`${import.meta.env.BASE_URL}logo.svg`} alt="Pariter Logo" className="w-8 h-8 rounded" />
             <div>
               <div className="flex items-center space-x-2">
                 <span className="font-bold tracking-tight text-lg text-[#0F172A]">PARITER</span>

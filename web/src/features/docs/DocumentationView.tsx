@@ -73,22 +73,25 @@ export const DocumentationView: React.FC = () => {
           You do not need to trust this web application. Any reviewer can audit a Pariter settlement receipt using standard command-line tools against the Arc JSON-RPC.
         </p>
         <div className="bg-slate-900 text-slate-100 p-3.5 rounded font-mono text-[11px] overflow-x-auto space-y-2">
-          <div className="text-slate-400"># 1. Query transaction receipt using cast:</div>
+          <div className="text-slate-400"># 1. Query transaction receipt and execution logs using cast:</div>
           <div>cast receipt &lt;TX_HASH&gt; --rpc-url https://rpc.mainnet.arc.io</div>
-          <div className="text-slate-400 pt-2"># 2. Check contract USDC balance (must always be zero):</div>
-          <div>cast call 0x3600000000000000000000000000000000000000 "balanceOf(address)(uint256)" {BATCH_PAYOUT_ADDRESS} --rpc-url https://rpc.mainnet.arc.io</div>
+          <div className="text-slate-400 pt-2"># 2. Reconcile canonical ERC-20 USDC transfers against BatchSettled event:</div>
+          <div># Verify that totalTransferred in BatchSettled matches inbound payer transfer and outbound recipient transfers</div>
         </div>
       </section>
 
-      {/* Cryptographic Guarantees */}
+      {/* Cryptographic Guarantees & Token Accounting */}
       <section className="bg-white border border-[#E4E7EC] rounded p-5 space-y-4 shadow-sm">
         <div className="flex items-center space-x-2 text-slate-900 font-bold text-sm">
           <ShieldCheck className="w-4 h-4 text-emerald-700" />
-          <h2>Cryptographic Invariants & Security Guarantees</h2>
+          <h2>Cryptographic Invariants & Dual-Unit Accounting</h2>
         </div>
         <ul className="list-disc pl-5 space-y-2 text-slate-700">
           <li>
-            <strong>Zero Custody Invariant:</strong> The contract holds no funds between transactions. Stateful property-based invariant fuzzing executed across 128,000 handler calls verified that <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">balanceOf(BatchPayout) == 0</code> across all generated transaction sequences.
+            <strong>Dual-Unit Separation on Arc:</strong> Arc uses native USDC (18 decimals, standard EVM wei format) for network execution gas fees, while application balances and transfers utilize the canonical 6-decimal precompile at <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">0x3600000000000000000000000000000000000000</code>. Pariter enforces strict separation and uses integer <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">bigint</code> math with zero floating-point conversions.
+          </li>
+          <li>
+            <strong>Net Balance Conservation Invariant:</strong> The contract retains zero net USDC from any batch execution. It enforces an atomic post-execution conservation check (<code className="bg-slate-100 px-1 py-0.5 rounded font-mono">balanceAfter == balanceBefore</code>). All authorized payer funds are fully disbursed to recipients, while remaining resilient against griefing attacks where third parties transfer unsolicited tokens directly to the contract.
           </li>
           <li>
             <strong>Atomicity:</strong> If any recipient transfer fails, the entire transaction reverts, leaving payer balances and allowances untouched.

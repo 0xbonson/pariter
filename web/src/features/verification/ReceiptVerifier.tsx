@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { createPublicClient, http, decodeEventLog, type Hash } from 'viem';
+import { createPublicClient, http, type Hash } from 'viem';
 import { arcMainnet } from '../../lib/chain/arcChain';
-import { ARC_USDC_ERC20_ADDRESS } from '../../lib/contracts/addresses';
-import { batchPayoutAbi } from '../../lib/contracts/batchPayoutAbi';
-import { erc20Abi } from '../../lib/contracts/erc20Abi';
+import { ARC_USDC_ERC20_ADDRESS, BATCH_PAYOUT_ADDRESS, IS_MAINNET_DEPLOYED } from '../../lib/contracts/addresses';
 import { formatUsdc } from '../../lib/money/usdc';
+import { verifySettlementTransaction, type VerificationResult } from './settlementVerification';
 import {
   Search,
   CheckCircle2,
@@ -14,30 +13,10 @@ import {
   Copy,
   ExternalLink,
   Check,
+  ShieldAlert,
 } from 'lucide-react';
 
-export interface VerifiedSettlementReceipt {
-  status: 'VERIFIED_SETTLEMENT' | 'REVERTED' | 'PENDING' | 'NOT_FOUND' | 'UNSUPPORTED' | 'ERROR';
-  txHash: string;
-  blockNumber?: bigint;
-  contractAddress?: string;
-  payer?: string;
-  batchId?: string;
-  referenceCommitment?: string;
-  recipientCount?: number;
-  totalTransferred?: bigint;
-  actualGasFeeUsdc?: string;
-  effectiveGasPrice?: bigint;
-  gasUsed?: bigint;
-  items: Array<{
-    recipient: string;
-    amount: bigint;
-    index: number;
-  }>;
-  tokenTransfersMatched: number;
-  timestamp?: string;
-  verificationMessage?: string;
-}
+export type VerifiedSettlementReceipt = VerificationResult;
 
 export const ReceiptVerifier: React.FC = () => {
   const [inputHash, setInputHash] = useState('');
@@ -146,101 +125,40 @@ export const ReceiptVerifier: React.FC = () => {
         return;
       }
 
-      // 2. Parse logs emitted in the transaction
-      let batchSettledEvent: any = null;
-      const payoutEvents: Array<{ recipient: string; amount: bigint; index: number }> = [];
-      let matchedTokenTransfers = 0;
-
-      for (const log of txReceipt.logs) {
-        // Attempt decoding BatchSettled event
+      // 2. Check bytecode of configured BatchPayout address
+      let hasContractCode = false;
+      if (IS_MAINNET_DEPLOYED) {
         try {
-          const decoded = decodeEventLog({
-            abi: batchPayoutAbi,
-            data: log.data,
-            topics: log.topics,
-          });
-
-          if (decoded.eventName === 'BatchSettled') {
-            batchSettledEvent = decoded.args;
-          } else if (decoded.eventName === 'PayoutExecuted') {
-            payoutEvents.push({
-              recipient: (decoded.args as any).recipient,
-              amount: (decoded.args as any).amount,
-              index: Number((decoded.args as any).index),
-            });
-          }
+          const code = await publicClient.getBytecode({ address: BATCH_PAYOUT_ADDRESS });
+          hasContractCode = !!code && code !== '0x';
         } catch {
-          // Log belongs to another ABI, inspect if it is ERC-20 Transfer
-        }
-
-        // Check if log is a USDC Transfer from the canonical token address
-        if (log.address.toLowerCase() === ARC_USDC_ERC20_ADDRESS.toLowerCase()) {
-          try {
-            const decodedErc20 = decodeEventLog({
-              abi: erc20Abi,
-              data: log.data,
-              topics: log.topics,
-            });
-            if (decodedErc20.eventName === 'Transfer') {
-              matchedTokenTransfers++;
-            }
-          } catch {
-            // Not an ERC-20 transfer
-          }
+          hasContractCode = false;
         }
       }
 
-      if (!batchSettledEvent) {
-        setReceipt({
-          status: 'UNSUPPORTED',
-          txHash: rawHash,
-          blockNumber: txReceipt.blockNumber,
-          contractAddress: txReceipt.to || undefined,
-          gasUsed: txReceipt.gasUsed,
-          items: [],
-          tokenTransfersMatched: matchedTokenTransfers,
-          verificationMessage: 'Transaction confirmed, but no BatchSettled event was found. This transaction was not executed through the Pariter settlement contract.',
-        });
-        setIsVerifying(false);
-        return;
+      // 3. Fetch block timestamp
+      let blockTimestamp: bigint | undefined;
+      if (txReceipt.blockNumber) {
+        try {
+          const block = await publicClient.getBlock({ blockNumber: txReceipt.blockNumber });
+          blockTimestamp = block.timestamp;
+        } catch {
+          // Fallback to undefined
+        }
       }
 
-      // Sort payout items by index
-      payoutEvents.sort((a, b) => a.index - b.index);
-
-      // Calculate actual gas fee (Arc uses native 18-decimal USDC for gas)
-      const effectiveGasPrice = txReceipt.effectiveGasPrice ?? 0n;
-      const gasFeeWei = txReceipt.gasUsed * effectiveGasPrice;
-      const feeUsdc = Number(gasFeeWei) / 1e18;
-      const feeFormatted = feeUsdc > 0 ? feeUsdc.toFixed(6) : '< 0.000001';
-
-      // Timestamp retrieval
-      let blockTimestampStr = '';
-      try {
-        const block = await publicClient.getBlock({ blockNumber: txReceipt.blockNumber });
-        blockTimestampStr = new Date(Number(block.timestamp) * 1000).toUTCString();
-      } catch {
-        blockTimestampStr = 'Confirmed onchain';
-      }
-
-      setReceipt({
-        status: 'VERIFIED_SETTLEMENT',
+      // 4. Run rigorous settlement verification engine
+      const verifiedResult = verifySettlementTransaction({
         txHash: rawHash,
-        blockNumber: txReceipt.blockNumber,
-        contractAddress: txReceipt.to || undefined,
-        payer: batchSettledEvent.payer,
-        batchId: batchSettledEvent.batchId,
-        referenceCommitment: batchSettledEvent.referenceCommitment,
-        recipientCount: Number(batchSettledEvent.recipientCount),
-        totalTransferred: batchSettledEvent.totalTransferred,
-        actualGasFeeUsdc: feeFormatted,
-        effectiveGasPrice,
-        gasUsed: txReceipt.gasUsed,
-        items: payoutEvents,
-        tokenTransfersMatched: matchedTokenTransfers,
-        timestamp: blockTimestampStr,
-        verificationMessage: `Cryptographically verified on Arc Mainnet. Settled ${payoutEvents.length} transfers totaling ${formatUsdc(batchSettledEvent.totalTransferred)} USDC.`,
+        tx,
+        receipt: txReceipt,
+        configuredContractAddress: BATCH_PAYOUT_ADDRESS,
+        canonicalUsdcAddress: ARC_USDC_ERC20_ADDRESS,
+        hasContractCode,
+        blockTimestamp,
       });
+
+      setReceipt(verifiedResult);
     } catch (err: any) {
       setReceipt({
         status: 'ERROR',
@@ -332,7 +250,7 @@ export const ReceiptVerifier: React.FC = () => {
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
                 : receipt.status === 'PENDING'
                 ? 'bg-indigo-50 border-indigo-200 text-indigo-950'
-                : receipt.status === 'REVERTED'
+                : receipt.status === 'REVERTED' || receipt.status === 'EVIDENCE_MISMATCH'
                 ? 'bg-red-50 border-red-200 text-red-950'
                 : 'bg-amber-50 border-amber-200 text-amber-950'
             }`}
@@ -347,12 +265,15 @@ export const ReceiptVerifier: React.FC = () => {
               {receipt.status === 'REVERTED' && (
                 <XCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
               )}
+              {receipt.status === 'EVIDENCE_MISMATCH' && (
+                <ShieldAlert className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+              )}
               {(receipt.status === 'NOT_FOUND' || receipt.status === 'UNSUPPORTED' || receipt.status === 'ERROR') && (
                 <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
               )}
               <div>
                 <span className="font-bold text-sm block tracking-tight">
-                  {receipt.status.replace('_', ' ')}
+                  {receipt.status.replace(/_/g, ' ')}
                 </span>
                 <p className="text-xs opacity-90 mt-0.5">{receipt.verificationMessage}</p>
               </div>

@@ -175,7 +175,7 @@ export const PayoutComposer: React.FC = () => {
           <button
             onClick={() => setShowImportModal(true)}
             aria-label="Import recipients from CSV or text"
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-white border border-[#D0D5DD] text-slate-700 hover:bg-slate-50 transition-colors focus-visible:ring-1 focus-visible:ring-slate-900"
+            className="flex items-center space-x-1.5 min-h-[38px] px-3.5 py-2 text-xs font-semibold rounded bg-white border border-[#D0D5DD] text-slate-700 hover:bg-slate-50 transition-colors focus-visible:ring-1 focus-visible:ring-slate-900"
           >
             <Upload className="w-3.5 h-3.5" />
             <span>Import CSV / Text</span>
@@ -244,7 +244,7 @@ export const PayoutComposer: React.FC = () => {
                 <th className="py-2.5 px-3 min-w-[340px]">Recipient Address (0x...)</th>
                 <th className="py-2.5 px-3 w-40">Amount (USDC)</th>
                 <th className="py-2.5 px-3 min-w-[180px]">Memo (Local Ref)</th>
-                <th className="py-2.5 px-3 w-12 text-center"></th>
+                <th className="py-2.5 px-3 w-14 text-center"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -309,10 +309,10 @@ export const PayoutComposer: React.FC = () => {
                       <button
                         onClick={() => removeRow(row.id)}
                         aria-label={`Remove recipient row ${idx + 1}`}
-                        className="p-1 text-slate-400 hover:text-red-600 rounded transition-colors focus-visible:ring-1 focus-visible:ring-red-500"
+                        className="min-h-[40px] min-w-[40px] inline-flex items-center justify-center p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors focus-visible:ring-1 focus-visible:ring-red-500"
                         title="Remove row"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </td>
                   </tr>
@@ -327,7 +327,7 @@ export const PayoutComposer: React.FC = () => {
           <button
             onClick={addRow}
             aria-label="Add new recipient"
-            className="flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm focus-visible:ring-1 focus-visible:ring-slate-900"
+            className="flex items-center space-x-1.5 min-h-[40px] px-3.5 py-2 text-xs font-semibold rounded bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors shadow-sm focus-visible:ring-1 focus-visible:ring-slate-900"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Recipient</span>

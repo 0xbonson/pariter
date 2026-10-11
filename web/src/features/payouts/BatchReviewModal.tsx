@@ -5,6 +5,9 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
   usePublicClient,
+  useChainId,
+  useSwitchChain,
+  useBalance,
 } from 'wagmi';
 import { encodePacked, keccak256, type Address } from 'viem';
 import { X, CheckCircle2, AlertCircle, Loader2, ArrowRight, ExternalLink } from 'lucide-react';
@@ -46,10 +49,34 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
   const { address } = useAccount();
   const publicClient = usePublicClient();
 
+  const chainId = useChainId();
+  const { switchChain } = useSwitchChain();
+  const isWrongNetwork = chainId !== 5042;
+
   const [step, setStep] = useState<TxStep>('REVIEW');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [estimatedGasUsdc, setEstimatedGasUsdc] = useState<string>('0.002');
+  const [estimatedGasUsdc, setEstimatedGasUsdc] = useState<string>('0.003');
   const [payoutTxHash, setPayoutTxHash] = useState<`0x${string}` | null>(null);
+
+  // Check current native USDC gas balance (18 decimals)
+  const { data: nativeBalanceData } = useBalance({
+    address,
+    query: { enabled: !!address },
+  });
+
+  // Check current ERC-20 USDC token balance (6 decimals)
+  const { data: erc20BalanceRaw } = useReadContract({
+    address: ARC_USDC_ERC20_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const payerErc20Balance = erc20BalanceRaw ?? 0n;
+  const payerNativeBalance = nativeBalanceData?.value ?? 0n;
+  const insufficientErc20 = payerErc20Balance < totalBaseUnits;
+  const insufficientNativeGas = payerNativeBalance < 5_000_000_000_000_000n; // < 0.005 native USDC
 
   // Check current allowance for BatchPayout contract
   const { data: currentAllowanceRaw, refetch: refetchAllowance } = useReadContract({
@@ -58,7 +85,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
     functionName: 'allowance',
     args: address && BATCH_PAYOUT_ADDRESS ? [address, BATCH_PAYOUT_ADDRESS] : undefined,
     query: {
-      enabled: !!address && !!BATCH_PAYOUT_ADDRESS,
+      enabled: !!address && !!BATCH_PAYOUT_ADDRESS && IS_MAINNET_DEPLOYED,
     },
   });
 
@@ -88,6 +115,7 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
 
   // Watch Payout transaction receipt
   const {
+    data: payoutReceipt,
     isLoading: isPayoutMining,
     isSuccess: isPayoutSuccess,
     error: payoutReceiptError,
@@ -95,25 +123,45 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
     hash: payoutHash,
   });
 
-  // Estimate gas
+  // Dynamic simulation & gas estimation
   useEffect(() => {
     if (!publicClient || !address || rows.length === 0) return;
 
     async function estimate() {
       try {
         const gasPrice = await publicClient!.getGasPrice();
-        // Base gas: 60k + ~30k per recipient
-        const estimatedUnits = BigInt(60000 + rows.length * 30000);
+        let estimatedUnits = 0n;
+
+        if (IS_MAINNET_DEPLOYED && currentAllowance >= totalBaseUnits) {
+          try {
+            const recipients = rows.map((r) => r.address.trim() as Address);
+            const amounts = rows.map((r) => parseUsdc(r.amount.trim()).baseUnits);
+            const dummyBatchId = keccak256(encodePacked(['address', 'uint256'], [address as Address, 0n]));
+            const dummyCommitment = keccak256(encodePacked(['string'], ['']));
+
+            estimatedUnits = await publicClient!.estimateContractGas({
+              address: BATCH_PAYOUT_ADDRESS,
+              abi: batchPayoutAbi,
+              functionName: 'executeBatch',
+              args: [recipients, amounts, dummyBatchId, dummyCommitment],
+              account: address,
+            });
+          } catch {
+            estimatedUnits = BigInt(65000 + rows.length * 28000);
+          }
+        } else {
+          estimatedUnits = BigInt(45000 + 65000 + rows.length * 28000);
+        }
+
         const gasWei = estimatedUnits * gasPrice;
-        // Convert 18-decimal wei to approx USDC string
         const usdcGas = Number(gasWei) / 1e18;
-        setEstimatedGasUsdc(usdcGas > 0.000001 ? usdcGas.toFixed(4) : '< 0.0001');
+        setEstimatedGasUsdc(usdcGas > 0.000001 ? usdcGas.toFixed(6) : '< 0.000001');
       } catch {
-        setEstimatedGasUsdc('~0.0020');
+        setEstimatedGasUsdc('~0.0030');
       }
     }
     estimate();
-  }, [publicClient, address, rows.length]);
+  }, [publicClient, address, rows.length, currentAllowance, totalBaseUnits]);
 
   // Synchronize approval state
   useEffect(() => {
@@ -127,19 +175,24 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
     }
   }, [isApprovalWritePending, isApprovalMining, isApprovalSuccess, refetchAllowance]);
 
-  // Synchronize payout state
+  // Synchronize payout state with strict onchain receipt verification
   useEffect(() => {
     if (isPayoutWritePending) {
       setStep('AWAITING_PAYOUT');
     } else if (isPayoutMining) {
       setStep('PAYOUT_PENDING');
       if (payoutHash) setPayoutTxHash(payoutHash);
-    } else if (isPayoutSuccess) {
-      setStep('CONFIRMED');
-      if (payoutHash) setPayoutTxHash(payoutHash);
-      onSuccess();
+    } else if (isPayoutSuccess && payoutReceipt) {
+      if (payoutReceipt.status === 'success') {
+        setStep('CONFIRMED');
+        if (payoutHash) setPayoutTxHash(payoutHash);
+        onSuccess();
+      } else {
+        setErrorMessage('Payout transaction was mined on Arc Mainnet but execution reverted onchain.');
+        setStep('FAILED');
+      }
     }
-  }, [isPayoutWritePending, isPayoutMining, isPayoutSuccess, payoutHash, onSuccess]);
+  }, [isPayoutWritePending, isPayoutMining, isPayoutSuccess, payoutReceipt, payoutHash, onSuccess]);
 
   const formatErrorMessage = (err: Error): string => {
     const msg = err.message || '';
@@ -265,6 +318,53 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
             </div>
           )}
 
+          {isWrongNetwork && (
+            <div className="p-3.5 rounded bg-amber-50 border border-amber-200 text-amber-900 flex items-start justify-between">
+              <div className="flex items-start space-x-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="font-semibold block">Connected to Wrong Network</span>
+                  <p className="text-[11px] text-amber-800 mt-0.5">
+                    Your wallet is connected to Chain ID {chainId}. Pariter requires Arc Mainnet (Chain ID 5042).
+                  </p>
+                </div>
+              </div>
+              {switchChain && (
+                <button
+                  type="button"
+                  onClick={() => switchChain({ chainId: 5042 })}
+                  className="ml-3 px-2.5 py-1 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded transition-colors flex-shrink-0"
+                >
+                  Switch to Arc
+                </button>
+              )}
+            </div>
+          )}
+
+          {insufficientErc20 && (
+            <div className="p-3.5 rounded bg-red-50 border border-red-200 text-red-900 flex items-start space-x-2">
+              <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="font-semibold block">Insufficient USDC Token Balance</span>
+                <p className="text-[11px] text-red-800 mt-0.5">
+                  Wallet has {formatUsdc(payerErc20Balance)} USDC ERC-20. Total batch required is {formatUsdc(totalBaseUnits)} USDC.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!insufficientErc20 && insufficientNativeGas && (
+            <div className="p-3.5 rounded bg-amber-50 border border-amber-200 text-amber-900 flex items-start space-x-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="font-semibold block">Low Native Gas Balance</span>
+                <p className="text-[11px] text-amber-800 mt-0.5">
+                  Arc gas fees are paid in native USDC (18 decimals). Your wallet has &lt; 0.005 native USDC, which may be insufficient to cover gas fees.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Verification Spec Matrix */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 bg-slate-50 rounded border border-slate-200">
             <div>
@@ -376,8 +476,13 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                 ) : requiresApproval && step !== 'APPROVED' && step !== 'CONFIRMED' ? (
                   <button
                     onClick={handleApprove}
-                    disabled={step === 'AWAITING_APPROVAL' || step === 'APPROVAL_PENDING'}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                    disabled={
+                      step === 'AWAITING_APPROVAL' ||
+                      step === 'APPROVAL_PENDING' ||
+                      isWrongNetwork ||
+                      insufficientErc20
+                    }
+                    className="flex items-center space-x-1.5 min-h-[38px] px-3.5 py-2 rounded font-semibold text-xs bg-slate-900 text-white hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {step === 'APPROVAL_PENDING' ? (
                       <>
@@ -424,8 +529,13 @@ export const BatchReviewModal: React.FC<BatchReviewModalProps> = ({
                 ) : (!requiresApproval || step === 'APPROVED') && step !== 'CONFIRMED' ? (
                   <button
                     onClick={handleExecutePayout}
-                    disabled={step === 'AWAITING_PAYOUT' || step === 'PAYOUT_PENDING'}
-                    className="flex items-center space-x-1.5 px-4 py-1.5 rounded font-semibold text-xs bg-blue-700 text-white hover:bg-blue-800 transition-colors disabled:opacity-50"
+                    disabled={
+                      step === 'AWAITING_PAYOUT' ||
+                      step === 'PAYOUT_PENDING' ||
+                      isWrongNetwork ||
+                      insufficientErc20
+                    }
+                    className="flex items-center space-x-1.5 min-h-[38px] px-4 py-2 rounded font-semibold text-xs bg-blue-700 text-white hover:bg-blue-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {step === 'PAYOUT_PENDING' ? (
                       <>
