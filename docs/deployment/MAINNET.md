@@ -26,11 +26,11 @@ Before broadcasting transactions on Arc Mainnet, verify:
 
 | Action | Estimated Gas Units | Gas Price (Current Arc Mempool) | Estimated Cost in Native USDC |
 | :--- | :--- | :--- | :--- |
-| **Deploy `BatchPayout`** | ~480,000 gas | ~20 gwei ($20 \times 10^{-9}$ USDC) | **~0.0096 USDC** |
-| **USDC Approval (Payer)** | ~45,000 gas | ~20 gwei ($20 \times 10^{-9}$ USDC) | **~0.0009 USDC** |
-| **Execute Batch (3 Recip.)**| ~150,000 gas | ~20 gwei ($20 \times 10^{-9}$ USDC) | **~0.0030 USDC** |
+| **Deploy `BatchPayout`** | ~759,413 gas | ~40 gwei max ($40 \times 10^{-9}$ USDC) | **~0.0304 USDC** |
+| **USDC Approval (Payer)** | ~45,000 gas | ~40 gwei max ($40 \times 10^{-9}$ USDC) | **~0.0018 USDC** |
+| **Execute Batch (2-3 Recip.)**| ~130,000–165,000 gas | ~40 gwei max ($40 \times 10^{-9}$ USDC) | **~0.0052–0.0066 USDC** |
 
-*Note: Arc's native gas asset is USDC. A deployer wallet requires less than $0.05 USDC in native balance to complete deployment and test settlement.*
+*Note: Arc's native gas asset is USDC. A deployer wallet requires less than 0.10 USDC in native balance to complete deployment, approval, and test settlement.*
 
 ---
 
