@@ -75,8 +75,8 @@ Arc is a Layer-1 blockchain built by Circle where **USDC is the native gas asset
 │   ├── src/
 │   │   └── BatchPayout.sol  # Atomic settlement contract
 │   ├── test/
-│   │   ├── BatchPayout.t.sol           # 18 unit and fuzz tests
-│   │   ├── invariants/                 # Invariant testing harness
+│   │   ├── BatchPayout.t.sol           # 19 unit and fuzz tests
+│   │   ├── invariants/                 # Invariant testing harness (128,000 calls)
 │   │   └── mocks/                      # Mock 6-decimal USDC contract
 │   ├── script/
 │   │   └── DeployBatchPayout.s.sol     # Mainnet deployment script
@@ -113,7 +113,7 @@ Arc is a Layer-1 blockchain built by Circle where **USDC is the native gas asset
 ```bash
 cd contracts
 
-# Run all 18 unit and fuzz tests
+# Run all 19 unit and fuzz tests
 forge test -vvv
 
 # Run invariant testing (128,000 handler calls)
